@@ -1,0 +1,9 @@
+.venv/
+.env
+__pycache__/
+data/
+logs/
+*.log
+src/migrate_history.py
+dbt_acb/target/
+dbt_acb/dbt_packages/
