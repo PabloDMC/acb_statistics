@@ -34,3 +34,7 @@ models:
     # Config indicated by + and applies to all files under models/example/
     example:
       +materialized: view
+
+vars:
+  # Ruta base dinámica apuntando a la carpeta de datos del proyecto
+  landing_data_dir: "../data/landing"

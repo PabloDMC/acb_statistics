@@ -194,6 +194,6 @@ def run_pipeline(is_incremental: bool = False, target_editions: list = None):
 
 
 if __name__ == "__main__":
-    run_pipeline(is_incremental=True)
+    #run_pipeline(is_incremental=True)
     
-    # run_pipeline(is_incremental=False, target_editions=list(range(80, 91)))
+    run_pipeline(is_incremental=False, target_editions=list(range(90,91)))

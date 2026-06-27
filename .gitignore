@@ -7,3 +7,5 @@ logs/
 src/migrate_history.py
 dbt_acb/target/
 dbt_acb/dbt_packages/
+dbt_acb/profiles.yml
+dbt_acb/users.yml

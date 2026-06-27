@@ -1,0 +1,49 @@
+version: 2
+
+sources:
+  - name: acb_landing
+    description: "Raw JSON payloads extracted directly from the official ACB Basketball API endpoints, preserving the original nested structures."
+    loader: python_scripts
+    
+    tables:
+      - name: competitions
+        description: >
+          Global parameters of the running competition. Contains root keys such as 'currentCompetitionId', 
+          'currentEditionId', 'currentWeekId', and metadata about the upcoming or live match.
+        meta:
+          external_location: "{{ var('landing_data_dir') }}/apiacb_competition/*.json"
+
+      - name: matchlists
+        description: >
+          Schedules and fixture definitions grouped by rounds or phases. Contains the 'matches' array 
+          holding high-level details like 'startDateTime', team IDs, and initial status definitions.
+        meta:
+          external_location: "{{ var('landing_data_dir') }}/apiacb_matchlist/*.json"
+
+      - name: match_headers
+        description: >
+          General match overview and status. Includes finalized scores ('currentHomeScore', 'currentAwayScore'), 
+          quarter breakdown results, and team lookups (full names, abbreviations, and hex color codes).
+        meta:
+          external_location: "{{ var('landing_data_dir') }}/apiacb_match_header/*.json"
+
+      - name: boxscores
+        description: >
+          Deeply nested traditional boxscores. Contains the 'teamBoxscores' array, splitting statistics 
+          ('points', 'assists', 'totalRebounds', 'rating') by periods, coaches, and individual players.
+        meta:
+          external_location: "{{ var('landing_data_dir') }}/apiacb_boxscore/*.json"
+
+      - name: match_shots
+        description: >
+          Advanced spatial shot charts. Collects telemetry data for every attempt, including shot chart 
+          coordinates ('posX', 'posY'), chronological markers, score state, and shooter license IDs.
+        meta:
+          external_location: "{{ var('landing_data_dir') }}/apiacb_match_shots/*.json"
+
+      - name: play_by_play
+        description: >
+          Chronological live commentary log. Contains the 'plays' array representing every on-court event 
+          ('playType', time elapsed, fouls, substitutions) with contextual home/away scores.
+        meta:
+          external_location: "{{ var('landing_data_dir') }}/apiacb_play_by_play/*.json"
