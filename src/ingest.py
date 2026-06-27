@@ -85,7 +85,7 @@ def ingest_match_task(api_client: ApiAcbClient, match_info: Tuple[int, int]):
             
             # Solo consolidamos de forma fija el Header si el partido ha terminado
             if header_data.get('matchStatus') == 'FINALIZED':
-                save_json_file("match_header", filename, header_data)
+                save_json_file("apiacb_match_header", filename, header_data)
 
         # Si el partido no ha terminado, sus estadísticas están incompletas -> Nos lo saltamos
         if header_data.get('matchStatus') != 'FINALIZED':
@@ -94,9 +94,9 @@ def ingest_match_task(api_client: ApiAcbClient, match_info: Tuple[int, int]):
         # Mapeo según disponibilidad informada en el JSON del Header
         content = header_data.get('availableContent', {})
         sub_datasets = {
-            "boxscore": True, 
-            "play_by_play": content.get('playbyplay', False),
-            "match_shots": content.get('playbyplay', False) 
+            "apiacb_boxscore": True, 
+            "apiacb_play_by_play": content.get('playbyplay', False),
+            "apiacb_match_shots": content.get('playbyplay', False) 
         }
 
         for dataset_name, is_available in sub_datasets.items():
@@ -142,7 +142,7 @@ def run_pipeline(is_incremental: bool = False, target_editions: list = None):
         if not payload:
             continue
             
-        save_json_file("competition", f"comp_{comp_id}", payload)
+        save_json_file("apiacb_competition", f"comp_{comp_id}", payload)
         curr_edition = payload.get("currentEditionId")
         all_rounds = extract_round_ids(payload)
         
@@ -172,7 +172,7 @@ def run_pipeline(is_incremental: bool = False, target_editions: list = None):
             if not any(m.get("matchStatus") == "FINALIZED" for m in matches):
                 continue
                 
-            save_json_file("matchlist", filename, ml_payload)
+            save_json_file("apiacb_matchlist", filename, ml_payload)
             
         all_match_tasks.update(extract_match_ids(ml_payload))
 
