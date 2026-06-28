@@ -7,87 +7,87 @@
 WITH source AS (
     SELECT 
         *,
-        CAST(regexp_extract(filename, 'ed_(\d+)_m_(\d+)', 1) AS INT) AS extracted_edition_id,
-        CAST(regexp_extract(filename, 'ed_(\d+)_m_(\d+)', 2) AS INT) AS extracted_match_id
+        try_cast(regexp_extract(filename, 'ed_(\d+)_m_(\d+)', 1) AS INT) AS edition_id,
+        try_cast(regexp_extract(filename, 'ed_(\d+)_m_(\d+)', 2) AS INT) AS match_id
     FROM {{ source('acb_landing', 'boxscores') }}
 ),
 
-flattened_periods AS (
+flattened_team_boxscores AS (
     SELECT
         *,
         unnest(teamBoxscores) AS tb
     FROM source
 ),
 
-flattened_players AS (
+flattened_periods AS (
     SELECT
         *,
         unnest(tb.statsByPeriods) AS sbp
+    FROM flattened_team_boxscores
+),
+
+flattened_players AS (
+    SELECT
+        *,
+        unnest(sbp.stats.players) AS p
     FROM flattened_periods
 ),
 
-final_extraction AS (
+normalized_player_json AS (
     SELECT
-        extracted_edition_id AS edition_id,
-        extracted_match_id AS match_id,
-        CAST(arena AS VARCHAR) AS arena,
-        CAST(attendance AS INT) AS attendance,
-        CAST(referees AS VARCHAR[]) AS referees,
-        CAST(tb.team.id AS INT) AS team_id,
-        CAST(tb.headCoach AS VARCHAR) AS head_coach,
-        CAST(tb.assistantCoaches AS VARCHAR[]) AS assistant_coaches,
-        CAST(sbp.quarter AS INT) AS quarter,
-        unnest(sbp.stats.players) AS p
+        *,
+        try_cast(p.player AS JSON) AS player_json
     FROM flattened_players
 )
 
 SELECT
     edition_id,
     match_id,
-    arena,
-    attendance,
-    referees,
-    team_id,
-    head_coach,
-    assistant_coaches,
-    quarter,
-    CAST(p.player.id AS INT) AS player_id,
-    CAST(p.player.firstInitialAndLastName AS VARCHAR) AS player_first_initial_and_last_name,
-    CAST(p.player.firstName AS VARCHAR) AS player_first_name,
-    CAST(p.player.lastName AS VARCHAR) AS player_last_name,
-    CAST(p.player.nickname AS VARCHAR) AS player_nickname,
-    CAST(p.player.shirtNumber AS INT) AS player_shirt_number,
-    CAST(p.player.headshotImageUrl AS VARCHAR) AS player_headshot_image_url,
-    CAST(p.player.headshotImageNoBackgroundUrl AS VARCHAR) AS player_headshot_image_no_background_url,
-    CAST(p.player.headshotImageAlt AS VARCHAR) AS player_headshot_image_alt,
-    CAST(p.player.fullBodyImageUrl AS VARCHAR) AS player_full_body_image_url,
-    CAST(p.player.fullBodyImageNoBackgroundUrl AS VARCHAR) AS player_full_body_image_no_background_url,
-    CAST(p.player.gameRole AS VARCHAR) AS player_game_role,
-    CAST(p.player.isLicenseActive AS BOOLEAN) AS player_is_license_active,
-    CAST(p.player.editionId AS INT) AS player_edition_id,
-    CAST(p.player.nicknameFirstName AS VARCHAR) AS player_nickname_first_name,
-    CAST(p.player.nicknameLastName AS VARCHAR) AS player_nickname_last_name,
-    CAST(p.onCourt AS BOOLEAN) AS is_on_court,
-    CAST(p.playTime AS VARCHAR) AS play_time,
-    CAST(p.isStarted AS BOOLEAN) AS is_starter,
-    CAST(p.points AS INT) AS points,
-    CAST(p.freeThrowsMade AS INT) AS free_throws_made,
-    CAST(p.freeThrowsAttempted AS INT) AS free_throws_attempted,
-    CAST(p.twoPointersMade AS INT) AS two_pointers_made,
-    CAST(p.twoPointersAttempted AS INT) AS two_pointers_attempted,
-    CAST(p.threePointersMade AS INT) AS three_pointers_made,
-    CAST(p.threePointersAttempted AS INT) AS three_pointers_attempted,
-    CAST(p.dunks AS INT) AS dunks,
-    CAST(p.assists AS INT) AS assists,
-    CAST(p.offRebounds AS INT) AS off_rebounds,
-    CAST(p.defRebounds AS INT) AS def_rebounds,
-    CAST(p.totalRebounds AS INT) AS total_rebounds,
-    CAST(p.steals AS INT) AS steals,
-    CAST(p.turnovers AS INT) AS turnovers,
-    CAST(p.blocks AS INT) AS blocks,
-    CAST(p.receivedBlocks AS INT) AS received_blocks,
-    CAST(p.personalFouls AS INT) AS personal_fouls,
-    CAST(p.foulsDrawn AS INT) AS fouls_drawn,
-    CAST(p.plusMinus AS INT) AS plus_minus,
-    CAST(p.rating AS INT) AS rating
-FROM final_extraction
+    try_cast(arena AS VARCHAR) AS arena,
+    try_cast(attendance AS INT) AS attendance,
+    try_cast(referees AS VARCHAR[]) AS referees,
+    try_cast(tb.team.id AS INT) AS team_id,
+    try_cast(tb.headCoach AS VARCHAR) AS head_coach,
+    try_cast(tb.assistantCoaches AS VARCHAR[]) AS assistant_coaches,
+    try_cast(sbp.quarter AS INT) AS quarter,
+    try_cast(player_json ->> 'id' AS INT) AS player_id,
+    try_cast(player_json ->> 'firstInitialAndLastName' AS VARCHAR) AS player_first_initial_and_last_name,
+    try_cast(player_json ->> 'firstName' AS VARCHAR) AS player_first_name,
+    try_cast(player_json ->> 'lastName' AS VARCHAR) AS player_last_name,
+    try_cast(player_json ->> 'nickname' AS VARCHAR) AS player_nickname,
+    try_cast(player_json ->> 'shirtNumber' AS VARCHAR) AS player_shirt_number,
+    try_cast(player_json ->> 'headshotImageUrl' AS VARCHAR) AS player_headshot_image_url,
+    try_cast(player_json ->> 'headshotImageNoBackgroundUrl' AS VARCHAR) AS player_headshot_image_no_background_url,
+    try_cast(player_json ->> 'headshotImageAlt' AS VARCHAR) AS player_headshot_image_alt,
+    try_cast(player_json ->> 'fullBodyImageUrl' AS VARCHAR) AS player_full_body_image_url,
+    try_cast(player_json ->> 'fullBodyImageNoBackgroundUrl' AS VARCHAR) AS player_full_body_image_no_background_url,
+    try_cast(player_json ->> 'gameRole' AS VARCHAR) AS player_game_role,
+    try_cast(player_json ->> 'isLicenseActive' AS BOOLEAN) AS player_is_license_active,
+    try_cast(player_json ->> 'editionId' AS INT) AS player_edition_id,
+    try_cast(player_json ->> 'nicknameFirstName' AS VARCHAR) AS player_nickname_first_name,
+    try_cast(player_json ->> 'nicknameLastName' AS VARCHAR) AS player_nickname_last_name,
+    try_cast(p.onCourt AS BOOLEAN) AS is_on_court,
+    try_cast(p.playTime AS VARCHAR) AS play_time,
+    try_cast(p.isStarted AS BOOLEAN) AS is_starter,
+    try_cast(p.points AS INT) AS points,
+    try_cast(p.freeThrowsMade AS INT) AS free_throws_made,
+    try_cast(p.freeThrowsAttempted AS INT) AS free_throws_attempted,
+    try_cast(p.twoPointersMade AS INT) AS two_pointers_made,
+    try_cast(p.twoPointersAttempted AS INT) AS two_pointers_attempted,
+    try_cast(p.threePointersMade AS INT) AS three_pointers_made,
+    try_cast(p.threePointersAttempted AS INT) AS three_pointers_attempted,
+    try_cast(p.dunks AS INT) AS dunks,
+    try_cast(p.assists AS INT) AS assists,
+    try_cast(p.offRebounds AS INT) AS off_rebounds,
+    try_cast(p.defRebounds AS INT) AS def_rebounds,
+    try_cast(p.totalRebounds AS INT) AS total_rebounds,
+    try_cast(p.steals AS INT) AS steals,
+    try_cast(p.turnovers AS INT) AS turnovers,
+    try_cast(p.blocks AS INT) AS blocks,
+    try_cast(p.receivedBlocks AS INT) AS received_blocks,
+    try_cast(p.personalFouls AS INT) AS personal_fouls,
+    try_cast(p.foulsDrawn AS INT) AS fouls_drawn,
+    try_cast(p.plusMinus AS INT) AS plus_minus,
+    try_cast(p.rating AS INT) AS rating,
+    current_timestamp AS cat_insert_date
+FROM normalized_player_json

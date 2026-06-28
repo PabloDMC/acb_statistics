@@ -94,14 +94,14 @@ def ingest_match_task(api_client: ApiAcbClient, match_info: Tuple[int, int]):
         # Mapeo según disponibilidad informada en el JSON del Header
         content = header_data.get('availableContent', {})
         sub_datasets = {
-            "apiacb_boxscore": True, 
-            "apiacb_play_by_play": content.get('playbyplay', False),
-            "apiacb_match_shots": content.get('playbyplay', False) 
+            "boxscore": True, 
+            "play_by_play": content.get('playbyplay', False),
+            "match_shots": content.get('playbyplay', False) 
         }
 
         for dataset_name, is_available in sub_datasets.items():
             if is_available:
-                dest_file = os.path.join(LANDING_DIR, dataset_name, f"{filename}.json")
+                dest_file = os.path.join(LANDING_DIR, f"apiacb_{dataset_name}", f"{filename}.json")
                 
                 # Si el archivo analítico ya existe continuamos
                 if os.path.exists(dest_file):
@@ -112,9 +112,9 @@ def ingest_match_task(api_client: ApiAcbClient, match_info: Tuple[int, int]):
                     method = getattr(api_client, f"get_{dataset_name}")
                     data = method(match_id)
                     if data:
-                        save_json_file(dataset_name, filename, data)
+                        save_json_file(f"apiacb_{dataset_name}", filename, data)
                 except Exception as e:
-                    LOG.error(f"Error en sub-dataset {dataset_name} para partido {match_id}: {e}")
+                    LOG.error(f"Error en sub-dataset apiacb_{dataset_name} para partido {match_id}: {e}")
 
     except Exception as e:
         LOG.error(f"Error procesando el hilo del partido {match_id}: {e}")
@@ -194,6 +194,6 @@ def run_pipeline(is_incremental: bool = False, target_editions: list = None):
 
 
 if __name__ == "__main__":
-    #run_pipeline(is_incremental=True)
+    run_pipeline(is_incremental=True)
     
-    run_pipeline(is_incremental=False, target_editions=list(range(90,91)))
+    #run_pipeline(is_incremental=False, target_editions=list(range(90,91)))
