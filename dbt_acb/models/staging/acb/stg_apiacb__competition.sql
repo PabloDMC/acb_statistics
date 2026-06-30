@@ -7,7 +7,7 @@
 WITH source AS (
     SELECT 
         *,
-        try_cast(regexp_extract(filename, 'comp_(\\d+)', 1) AS INT) AS file_competition_id
+        try_cast(regexp_extract(filename, 'comp_(\d+)', 1) AS INT) AS file_competition_id
     FROM {{ source('acb_landing', 'competitions') }}
 ),
 

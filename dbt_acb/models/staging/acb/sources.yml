@@ -11,57 +11,33 @@ sources:
           Global parameters of the running competition.
         meta:
           external_location: "{{ var('landing_data_dir') }}/apiacb_competition/*.json"
-        config:
-          options:
-            union_by_name: true
-            ignore_errors: true
 
       - name: matchlists
         description: >
           Schedules and fixture definitions grouped by rounds or phases.
         meta:
           external_location: "{{ var('landing_data_dir') }}/apiacb_matchlist/*.json"
-        config:
-          options:
-            union_by_name: true
-            ignore_errors: true
 
       - name: match_headers
         description: >
           General match overview and status.
         meta:
           external_location: "{{ var('landing_data_dir') }}/apiacb_match_header/*.json"
-        config:
-          options:
-            union_by_name: true
-            ignore_errors: true
 
       - name: boxscores
         description: >
           Deeply nested traditional boxscores.
         meta:
           external_location: "{{ var('landing_data_dir') }}/apiacb_boxscore/*.json"
-        config:
-          options:
-            union_by_name: true
-            ignore_errors: true
 
       - name: match_shots
         description: >
           Advanced spatial shot charts.
         meta:
           external_location: "{{ var('landing_data_dir') }}/apiacb_match_shots/*.json"
-        config:
-          options:
-            union_by_name: true
-            ignore_errors: true
 
       - name: play_by_play
         description: >
           Chronological live commentary log.
         meta:
           external_location: "{{ var('landing_data_dir') }}/apiacb_play_by_play/*.json"
-        config:
-          options:
-            union_by_name: true
-            ignore_errors: true

@@ -7,8 +7,8 @@
 WITH source AS (
     SELECT 
         *,
-        try_cast(regexp_extract(filename, 'ed_(\\d+)_m_(\\d+)', 1) AS INT) AS edition_id,
-        try_cast(regexp_extract(filename, 'ed_(\\d+)_m_(\\d+)', 2) AS INT) AS match_id
+        try_cast(regexp_extract(filename, 'ed_(\d+)_m_(\d+)', 1) AS INT) AS edition_id,
+        try_cast(regexp_extract(filename, 'ed_(\d+)_m_(\d+)', 2) AS INT) AS match_id
     FROM {{ source('acb_landing', 'match_shots') }}
 ),
 
