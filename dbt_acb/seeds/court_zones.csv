@@ -1,0 +1,15 @@
+zone_id,shot_zone_basic,shot_zone_area,shot_zone_range,dist_min,dist_max,ang_min,ang_max
+1,Restricted Area,Center(C),Less Than 1.25m,0,1250,-180,180
+2,Paint (Non-RA),Center(C),1.25-4.5m,1250,4500,-30,30
+3,Paint (Non-RA),Left Side(L),1.25-4.5m,1250,4500,-180,-30
+4,Paint (Non-RA),Right Side(R),1.25-4.5m,1250,4500,30,180
+5,Mid-Range,Center(C),4.5m-Three Point Line,4500,6600,-30,30
+6,Mid-Range,Left Side(L),4.5m-Three Point Line,4500,6600,-180,-30
+7,Mid-Range,Right Side(R),4.5m-Three Point Line,4500,6600,30,180
+8,Left Corner 3,Left Side(L),6.60m+,6600,30000,-180,-80
+9,Right Corner 3,Right Side(R),6.60m+,6600,30000,80,180
+10,Above the Break 3,Center(C),6.75m+,6600,30000,-25,25
+11,Above the Break 3,Left Center(LC),6.75m+,6600,30000,-80,-25
+12,Above the Break 3,Right Center(RC),6.75m+,6600,30000,25,80
+13,Backcourt,Backcourt(BC),Backcourt,14000,30000,-180,180
+14,Free Throw Line,Center(C),4.6m,0,0,0,0

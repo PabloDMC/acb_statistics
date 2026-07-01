@@ -1,6 +1,7 @@
 {{ config(
     materialized='table',
-    tags=["acb_statistics"],
+    schema = "staging",
+    tags=["acb_analytics"],
     cluster_by=['edition_id', 'match_id']
 ) }}
 

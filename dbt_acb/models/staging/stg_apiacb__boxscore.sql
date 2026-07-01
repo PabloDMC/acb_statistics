@@ -1,6 +1,7 @@
 {{ config(
     materialized='table',
-    tags=["acb_statistics"],
+    schema = "staging",
+    tags=["acb_analytics"],
     cluster_by=['edition_id', 'match_id']
 ) }}
 
@@ -47,6 +48,7 @@ SELECT
     try_cast(attendance AS INT) AS attendance,
     try_cast(referees AS VARCHAR[]) AS referees,
     try_cast(tb.team.id AS INT) AS team_id,
+    try_cast(tb.team.clubId AS INT) AS club_id,
     try_cast(tb.headCoach AS VARCHAR) AS head_coach,
     try_cast(tb.assistantCoaches AS VARCHAR[]) AS assistant_coaches,
     try_cast(sbp.quarter AS INT) AS quarter,

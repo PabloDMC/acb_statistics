@@ -1,0 +1,77 @@
+play_type_id,play_name,category,sub_category
+92,Free Throw Made,Scoring,FT
+93,2pt Made,Scoring,2P
+94,3pt Made,Scoring,3P
+100,Dunk Made,Scoring,2P
+96,Free Throw Missed,Miss,FT
+97,2pt Missed,Miss,2P
+98,3pt Missed,Miss,3P
+533,Dunk Missed,Miss,2P
+101,Offensive Rebound,Rebound,Offensive
+104,Defensive Rebound,Rebound,Defensive
+102,Block,Defense,Block Made
+105,Blocked Shot,Defense,Block Received
+103,Steal,Defense,Steal
+106,Turnover,Turnover,General
+107,Assist (2P),Assist,2P
+108,Assist (3P),Assist,3P
+119,Assist (FT),Assist,FT
+109,Offensive Foul,Foul,Offensive
+110,Foul Drawn,Foul,Drawn
+159,Personal Foul,Foul,Personal
+160,Personal Foul (1 FT),Foul,Personal
+161,Personal Foul (2 FT),Foul,Personal
+162,Personal Foul (3 FT),Foul,Personal
+163,Personal Foul (3 FT),Foul,Personal
+165,Unsportsmanlike Foul,Foul,Unsportsmanlike
+166,Unsportsmanlike Foul,Foul,Unsportsmanlike
+167,Unsportsmanlike Foul,Foul,Unsportsmanlike
+168,Unsportsmanlike Foul (Offset),Foul,Unsportsmanlike
+169,Unsportsmanlike Foul,Foul,Unsportsmanlike
+170,Disqualifying Foul,Foul,Disqualifying
+171,Disqualifying Foul,Foul,Disqualifying
+200,Match Disqualification,Foul,Disqualifying
+172,Technical Foul,Foul,Technical
+173,Technical Foul (Offset),Foul,Technical
+176,Technical Foul (Coach),Foul,Technical
+177,Technical Foul (Bench),Foul,Technical
+537,Technical Foul (1 FT),Foul,Technical
+538,Technical Foul,Foul,Technical
+539,Technical Foul,Foul,Technical
+540,Technical Foul (Coach),Foul,Technical
+541,Technical Foul (Coach),Foul,Technical
+542,Technical Foul (Coach),Foul,Technical
+543,Technical Foul (Coach - Offset),Foul,Technical
+544,Technical Foul (Bench),Foul,Technical
+545,Technical Foul (Bench),Foul,Technical
+547,Technical Foul (Bench - Offset),Foul,Technical
+548,Disqualifying Foul,Foul,Disqualifying
+549,Disqualifying Foul,Foul,Disqualifying
+551,Disqualifying Foul,Foul,Disqualifying
+112,Substitution In,Rotation,In
+115,Substitution Out,Rotation,Out
+599,Starting Lineup,Rotation,Lineup
+113,Timeout,System,Timeout
+118,IR - TV Timeout,System,Timeout
+121,Quarter Start,System,Admin
+116,Quarter End,System,Admin
+122,Game Start,System,Admin
+123,Game End,System,Admin
+600,Game Start,System,Admin
+178,Jumpball Won,System,Jumpball
+179,Jumpball Lost,System,Jumpball
+405,IR - Review Started,IR,Review
+406,IR - Shot Type Review,IR,Review
+407,IR - Basket Validity Review,IR,Review
+408,IR - Shot Clock Review,IR,Review
+409,IR - Game Clock Review,IR,Review
+410,IR - Altercation Review,IR,Review
+411,IR - Foul Type Review,IR,Review
+412,IR - Violation Review,IR,Review
+413,IR - Out of Bounds Review,IR,Review
+414,IR - Player Action Review,IR,Review
+415,IR - Substitution Review,IR,Review
+416,IR - Coach Challenge (Home),IR,Challenge
+417,IR - Coach Challenge (Away),IR,Challenge
+748,IR - Challenge Successful,IR,Challenge Result
+749,IR - Challenge Failed,IR,Challenge Result
