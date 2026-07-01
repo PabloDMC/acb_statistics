@@ -51,6 +51,8 @@ identity_ranked AS (
 )
 
 SELECT
+    concat_ws('_', r.player_id, r.edition_id, r.club_id) AS id,
+
     r.player_id,
     r.edition_id,
     r.club_id,

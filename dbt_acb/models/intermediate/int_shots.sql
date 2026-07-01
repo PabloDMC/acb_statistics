@@ -70,7 +70,11 @@ shots_enriched AS (
 geom_zones AS (
     SELECT
         se.*,
-        cz.zone_id AS geom_zone_id
+        cz.zone_id AS geom_zone_id,
+        ROW_NUMBER() OVER (
+            PARTITION BY se.match_id, se.shot_id
+            ORDER BY cz.zone_id
+        ) AS zone_rank
     FROM shots_enriched se
     LEFT JOIN {{ ref('court_zones') }} cz
         ON cz.zone_id BETWEEN 1 AND 12
@@ -87,9 +91,12 @@ final AS (
             ELSE geom_zone_id
         END AS zone_id
     FROM geom_zones
+    WHERE zone_rank = 1
 )
 
 SELECT
+    concat_ws('_', match_id, shot_id) AS id,
+
     shot_id,
     competition_id,
     edition_id,
@@ -98,8 +105,8 @@ SELECT
     team_id,
     club_id,
 
-    norm_pos_x AS x,
-    norm_pos_y AS y,
+    norm_pos_y AS x,
+    norm_pos_x AS y,
 
     zone_id,
     is_made,

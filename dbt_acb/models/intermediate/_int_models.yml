@@ -1,0 +1,44 @@
+version: 2
+
+models:
+  - name: int_boxscore
+    columns:
+      - name: id
+        tests:
+          - unique
+          - not_null
+
+  - name: int_matches
+    columns:
+      - name: match_id
+        tests:
+          - unique
+          - not_null
+
+  - name: int_play_by_play
+    columns:
+      - name: id
+        tests:
+          - unique
+          - not_null
+
+  - name: int_players
+    columns:
+      - name: id
+        tests:
+          - unique
+          - not_null
+
+  - name: int_shots
+    columns:
+      - name: id
+        tests:
+          - unique
+          - not_null
+
+  - name: int_teams
+    columns:
+      - name: team_id
+        tests:
+          - unique
+          - not_null

@@ -33,6 +33,8 @@ players_ranked AS (
 )
 
 SELECT
+    concat_ws('_', pr.match_id, pr.player_id) AS id,
+
     pr.edition_id,
     pr.match_id,
     mh.competition_id,

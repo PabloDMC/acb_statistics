@@ -43,6 +43,13 @@ resolved AS (
 )
 
 SELECT
+  concat_ws(
+      '_',
+      match_id,
+      coalesce(player_license_id, 0),
+      play_type_id,
+      event_order
+  ) AS id,
   edition_id,
   match_id,
   event_order,
