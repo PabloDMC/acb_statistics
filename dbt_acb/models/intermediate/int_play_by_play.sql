@@ -53,7 +53,7 @@ SELECT
   edition_id,
   match_id,
   event_order,
-  quarter AS period,
+  quarter,
   minute,
   second,
   seconds_remaining,

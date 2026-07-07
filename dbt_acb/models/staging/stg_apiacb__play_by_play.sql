@@ -27,7 +27,7 @@ SELECT
     try_cast(p."order" AS INT) AS play_order,
     try_cast(p.playerLicenseId AS INT) AS player_license_id,
     try_cast(p.licenseType AS VARCHAR) AS license_type,
-    try_cast(p.playType AS VARCHAR) AS play_type,
+    try_cast(p.playType AS INT) AS play_type,
     try_cast(p.playTag AS VARCHAR) AS play_tag,
     try_cast(p.quarter AS INT) AS quarter,
     try_cast(p.minute AS INT) AS minute,
