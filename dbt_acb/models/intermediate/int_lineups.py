@@ -205,7 +205,7 @@ def model(dbt, session):
 
     dbt.config(
         materialized="incremental",
-        schema="marts",
+        schema="intermediate",
         tags=["acb_analytics"],
     )
 

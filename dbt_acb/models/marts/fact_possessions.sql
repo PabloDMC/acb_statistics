@@ -4,21 +4,21 @@
     tags=['acb_analytics']
 ) }}
 
-WITH st AS (
+WITH poss AS (
 
     SELECT
         match_id,
-        team_id,
-        stint_id,
         quarter,
+        possession_id,
+        team_id,
         start_time,
         end_time,
         score_h_start,
         score_h_end,
         score_a_start,
         score_a_end,
-        player_ids
-    FROM {{ ref('fact_lineups') }}
+        end_reason
+    FROM {{ ref('int_possessions') }}
 
     {% if is_incremental() %}
     WHERE match_id NOT IN (
@@ -44,7 +44,7 @@ m AS (
 
 joined AS (
     SELECT
-        st.*,
+        p.*,
         m.edition_id,
         m.home_team_id,
         m.home_team_club_id,
@@ -53,15 +53,29 @@ joined AS (
         m.home_team_full_name,
         m.away_team_full_name,
 
-        CASE WHEN st.team_id = m.home_team_id THEN m.home_team_club_id
+        CASE WHEN p.team_id = m.home_team_id THEN m.home_team_club_id
              ELSE m.away_team_club_id
         END AS club_id,
 
-        CASE WHEN st.team_id = m.home_team_id THEN m.home_team_full_name
+        CASE WHEN p.team_id = m.home_team_id THEN m.home_team_full_name
              ELSE m.away_team_full_name
-        END AS team_full_name
-    FROM st
+        END AS team_full_name,
+
+        pt.play_name,
+
+        l.stint_id,
+        l.player_ids
+
+    FROM poss p
     LEFT JOIN m USING (match_id)
+    LEFT JOIN {{ ref('play_types') }} pt 
+    ON pt.play_type_id = p.end_reason
+    LEFT JOIN {{ ref('int_lineups') }} l
+    ON p.match_id = l.match_id
+    AND p.team_id  = l.team_id
+    AND p.quarter  = l.quarter
+    AND p.start_time <= l.start_time
+    AND p.start_time > l.end_time
 ),
 
 scoring AS (
@@ -95,7 +109,7 @@ SELECT
     club_id,
     team_full_name,
     quarter,
-    stint_id,
+    possession_id,
     start_time,
     end_time,
     duration_seconds,
@@ -104,5 +118,9 @@ SELECT
     score_opp_start,
     score_opp_end,
     plus_minus,
-    player_ids
+    stint_id,
+    player_ids,
+    end_reason,
+    play_name as end_reason_desc
 FROM scoring
+where start_time > end_time
