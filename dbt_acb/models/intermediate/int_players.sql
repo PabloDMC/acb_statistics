@@ -1,61 +1,118 @@
 {{ config(
     materialized='table',
-    schema = "intermediate",
+    schema="intermediate",
     tags=["acb_analytics"],
-    cluster_by=['edition_id', 'player_id', 'club_id']
+    cluster_by=['edition_id', 'competition_id', 'team_id', 'player_id']
 ) }}
 
 WITH bs AS (
+
     SELECT
         b.*,
-        mh.match_start_time
+        mh.match_start_time,
+        mh.competition_id
     FROM {{ ref('stg_apiacb__boxscore') }} b
     LEFT JOIN {{ ref('stg_apiacb__match_header') }} mh
         ON b.match_id = mh.match_id
+
 ),
 
 players_clean AS (
+
     SELECT *
     FROM bs
     WHERE quarter = 0
+
 ),
 
-club_ranges AS (
+roster_ranges AS (
+
     SELECT
+
         player_id,
         edition_id,
+        competition_id,
+        team_id,
         club_id,
+
         MIN(match_start_time) AS start_date,
         MAX(match_start_time) AS end_date
+
     FROM players_clean
-    GROUP BY player_id, edition_id, club_id
+
+    GROUP BY
+
+        player_id,
+        edition_id,
+        competition_id,
+        team_id,
+        club_id
+
 ),
 
 roles_concat AS (
+
     SELECT
+
         player_id,
         edition_id,
+        competition_id,
+        team_id,
         club_id,
-        STRING_AGG(DISTINCT player_game_role, ', ') AS roles_concat
+
+        STRING_AGG(
+            DISTINCT player_game_role,
+            ', '
+        ) AS roles_concat
+
     FROM players_clean
-    GROUP BY player_id, edition_id, club_id
+
+    GROUP BY
+
+        player_id,
+        edition_id,
+        competition_id,
+        team_id,
+        club_id
+
 ),
 
 identity_ranked AS (
+
     SELECT *,
+
         ROW_NUMBER() OVER (
-            PARTITION BY player_id, edition_id, club_id
+
+            PARTITION BY
+
+                player_id,
+                edition_id,
+                competition_id,
+                team_id
+
             ORDER BY match_start_time DESC
-        ) AS rn_id
+
+        ) AS rn
+
     FROM players_clean
+
 )
 
 SELECT
-    concat_ws('_', r.player_id, r.edition_id, r.club_id) AS id,
 
-    r.player_id,
-    r.edition_id,
-    r.club_id,
+    concat_ws(
+        '_',
+        i.player_id,
+        i.team_id
+    ) AS id,
+
+    i.player_id,
+
+    i.edition_id,
+    i.competition_id,
+
+    i.team_id,
+    i.club_id,
 
     r.start_date,
     r.end_date,
@@ -68,9 +125,11 @@ SELECT
     i.player_nickname_last_name,
 
     i.player_shirt_number,
+
     i.player_headshot_image_url,
     i.player_headshot_image_no_background_url,
     i.player_headshot_image_alt,
+
     i.player_full_body_image_url,
     i.player_full_body_image_no_background_url,
 
@@ -80,13 +139,16 @@ SELECT
 
     i.cat_insert_date
 
-FROM club_ranges r
-LEFT JOIN identity_ranked i
-    ON r.player_id = i.player_id
-   AND r.edition_id = i.edition_id
-   AND r.club_id = i.club_id
-   AND i.rn_id = 1
+FROM identity_ranked i
+
+LEFT JOIN roster_ranges r
+
+ON i.player_id = r.player_id
+AND i.team_id = r.team_id
+
 LEFT JOIN roles_concat rc
-    ON r.player_id = rc.player_id
-   AND r.edition_id = rc.edition_id
-   AND r.club_id = rc.club_id
+
+ON i.player_id = rc.player_id
+AND i.team_id = rc.team_id
+
+WHERE rn = 1
