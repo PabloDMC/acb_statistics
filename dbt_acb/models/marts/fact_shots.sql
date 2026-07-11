@@ -68,6 +68,7 @@ final AS (
 
         edition_id,
         competition_id,
+        competition_phase,
 
         match_id,
         shot_id,

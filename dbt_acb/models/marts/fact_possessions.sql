@@ -33,6 +33,8 @@ m AS (
     SELECT
         match_id,
         edition_id,
+        competition_id,
+        round_type as competition_phase,
         home_team_id,
         home_team_club_id,
         away_team_id,
@@ -46,6 +48,8 @@ joined AS (
     SELECT
         p.*,
         m.edition_id,
+        m.competition_id,
+        m.competition_phase,
         m.home_team_id,
         m.home_team_club_id,
         m.away_team_id,
@@ -104,6 +108,8 @@ scoring AS (
 
 SELECT
     edition_id,
+    competition_id,
+    competition_phase,
     match_id,
     team_id,
     club_id,

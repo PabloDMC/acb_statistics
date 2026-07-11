@@ -12,18 +12,23 @@ WITH pbp AS (
 
 match_meta AS (
   SELECT
-    match_id,
-    home_team_id,
-    away_team_id,
-    home_team_club_id,
-    away_team_club_id
-  FROM {{ ref('stg_apiacb__match_header') }}
+    mh.match_id,
+    mh.competition_id,
+    ml.round_type as competition_phase,
+    mh.home_team_id,
+    mh.away_team_id,
+    mh.home_team_club_id,
+    mh.away_team_club_id
+    FROM {{ ref('stg_apiacb__matchlist') }} ml
+    JOIN {{ ref('stg_apiacb__match_header') }} mh USING (match_id)
 ),
 
 resolved AS (
   SELECT
     e.edition_id,
     e.match_id,
+    mm.competition_id,
+    mm.competition_phase,
     e.play_order AS event_order,
     e.player_license_id,
     e.play_type AS play_type_id,
@@ -51,6 +56,8 @@ SELECT
       event_order
   ) AS id,
   edition_id,
+  competition_id,
+  competition_phase,
   match_id,
   event_order,
   quarter,

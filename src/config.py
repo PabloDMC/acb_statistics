@@ -13,9 +13,10 @@ load_dotenv(dotenv_path=PROJECT_ROOT / ".env")
 
 # Si no se define en el .env, por defecto creará la carpeta 'data' en la raíz
 DATA_ROOT = Path(os.getenv("DATA_BASE_DIR", PROJECT_ROOT / "data"))
+DATABASE_NAME = Path(os.getenv("DATA_BASE_NAME", "acb_analytics.duckdb"))
 
 LANDING_DIR = DATA_ROOT / "landing"
-DATABASE_DIR = DATA_ROOT / "database"
+DATABASE_DIR = DATA_ROOT / "database" / DATABASE_NAME
 
 # ==============================================================================
 # 2. CONFIGURACIÓN DE LA API ACB

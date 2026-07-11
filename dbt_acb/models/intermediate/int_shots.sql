@@ -29,18 +29,21 @@ WITH shots AS (
 ),
 
 mh AS (
-    SELECT
-        match_id,
-        home_team_id,
-        away_team_id,
-        home_team_club_id,
-        away_team_club_id
-    FROM {{ ref('stg_apiacb__match_header') }}
+  SELECT
+    mh.match_id,
+    ml.round_type as competition_phase,
+    mh.home_team_id,
+    mh.away_team_id,
+    mh.home_team_club_id,
+    mh.away_team_club_id
+    FROM {{ ref('stg_apiacb__matchlist') }} ml
+    JOIN {{ ref('stg_apiacb__match_header') }} mh USING (match_id)
 ),
 
 shots_enriched AS (
     SELECT
         s.*,
+        mh.competition_phase,
 
         sqrt(s.norm_pos_x * s.norm_pos_x + s.norm_pos_y * s.norm_pos_y) AS dist,
         degrees(atan2(s.norm_pos_y, abs(s.norm_pos_x))) AS ang,
@@ -99,6 +102,7 @@ SELECT
 
     shot_id,
     competition_id,
+    competition_phase,
     edition_id,
     match_id,
     player_id,

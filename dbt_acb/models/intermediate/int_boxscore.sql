@@ -11,10 +11,12 @@ WITH bs AS (
 ),
 
 mh AS (
-    SELECT
-        match_id,
-        competition_id
-    FROM {{ ref('stg_apiacb__match_header') }}
+    SELECT 
+        mh.match_id,
+        mh.competition_id,
+        ml.round_type as competition_phase
+    FROM {{ ref('stg_apiacb__matchlist') }} ml
+    JOIN {{ ref('stg_apiacb__match_header') }} mh USING (match_id)
 ),
 
 players_clean AS (
@@ -38,6 +40,7 @@ SELECT
     pr.edition_id,
     pr.match_id,
     mh.competition_id,
+    mh.competition_phase,
     pr.team_id,
     pr.club_id,
     pr.player_id,
