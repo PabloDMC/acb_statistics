@@ -43,7 +43,11 @@ with agg as (
         sum(defensive_possessions) as defensive_possessions,
         sum(possessions) as possessions,
         sum(lineup_team_points) as team_points,
-        sum(lineup_opp_points) as opp_points
+        sum(lineup_opp_points) as opp_points,
+		sum(off_offensive_possessions) as off_offensive_possessions,
+		sum(off_defensive_possessions) as off_defensive_possessions,
+		sum(off_team_points) as off_team_points,
+		sum(off_opp_points) as off_opp_points
 	from {{ ref('fact_player_games') }}
 	group by edition_id, competition_id, competition_phase, player_id, team_id, player_game_role
 )
@@ -94,5 +98,29 @@ select
     opp_points,
     100.0 * team_points / NULLIF(offensive_possessions, 0) as offensive_rating,
     100.0 * opp_points / NULLIF(defensive_possessions, 0) as defensive_rating,
-    100.0 * (team_points / NULLIF(offensive_possessions, 0) - opp_points / NULLIF(defensive_possessions, 0)) as net_rating
+    100.0 * (team_points / NULLIF(offensive_possessions, 0) - opp_points / NULLIF(defensive_possessions, 0)) as net_rating,
+    (
+		(100.0 * team_points / NULLIF(offensive_possessions,0))
+		-
+		(100.0 * (off_team_points - team_points) / NULLIF(off_offensive_possessions - offensive_possessions,0))
+	) AS onoff_offensive_rating,
+
+	(
+		(100.0 * opp_points / NULLIF(defensive_possessions,0))
+		-
+		(100.0 * (off_opp_points - opp_points) / NULLIF(off_defensive_possessions - defensive_possessions,0))
+	) AS onoff_defensive_rating,
+
+	(
+		(100.0 * team_points / NULLIF(offensive_possessions,0))
+		-
+		(100.0 * opp_points / NULLIF(defensive_possessions,0))
+	)
+	-
+	(
+		(100.0 * (off_team_points - team_points) / NULLIF(off_offensive_possessions - offensive_possessions,0))
+		-
+		(100.0 * (off_opp_points - opp_points) / NULLIF(off_defensive_possessions - defensive_possessions,0))
+	) AS onoff_net_rating
+
 from agg

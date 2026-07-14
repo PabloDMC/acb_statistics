@@ -13,14 +13,14 @@ SELECT
     shot_zone_area,
     shot_zone_range,
 
-    COUNT(*) AS fga,
+    COUNT(*) AS field_goals_attempted,
 
-    SUM(CASE WHEN is_made THEN 1 ELSE 0 END) AS fgm,
+    SUM(CASE WHEN is_made THEN 1 ELSE 0 END) AS field_goals_made,
 
     ROUND(
         AVG(CASE WHEN is_made THEN 1.0 ELSE 0.0 END),
         4
-    ) AS fg_pct
+    ) AS field_goals_pct
 
 FROM {{ ref('fact_shots') }}
 

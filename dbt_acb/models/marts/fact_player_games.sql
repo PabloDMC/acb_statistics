@@ -56,6 +56,26 @@ agg AS (
 
 ),
 
+team_totals AS (
+
+    SELECT
+
+        edition_id,
+        competition_id,
+        competition_phase,
+        match_id,
+        team_id,
+        SUM(offensive_possessions) AS team_offensive_possessions,
+        SUM(defensive_possessions) AS team_defensive_possessions,
+        SUM(total_possessions) AS team_possessions,
+        SUM(team_points) AS team_points,
+        SUM(opp_points)  AS opp_points
+
+    FROM {{ ref('fact_lineups') }}
+    GROUP BY ALL
+
+),
+
 bs AS (
 
     SELECT *
@@ -210,16 +230,60 @@ final AS (
             ) >= 3
         ) AS is_triple_double,
 
+        -- =========================
+        -- ON COURT
+        -- =========================
+
         a.offensive_possessions,
         a.defensive_possessions,
         a.possessions,
+
         a.lineup_team_points,
         a.lineup_opp_points,
+
         100.0 * a.lineup_team_points / NULLIF(a.offensive_possessions,0) AS offensive_rating,
         100.0 * a.lineup_opp_points / NULLIF(a.defensive_possessions,0) AS defensive_rating,
         100.0 * a.lineup_team_points / NULLIF(a.offensive_possessions,0)
         -
-        100.0 * a.lineup_opp_points / NULLIF(a.defensive_possessions,0) AS net_rating,
+        100.0 * a.lineup_opp_points  / NULLIF(a.defensive_possessions,0) AS net_rating,
+
+        -- =========================
+        -- OFF COURT
+        -- =========================
+
+        tt.team_offensive_possessions - a.offensive_possessions AS off_offensive_possessions,
+        tt.team_defensive_possessions - a.defensive_possessions AS off_defensive_possessions,
+        tt.team_possessions - a.possessions AS off_possessions,
+        tt.team_points - a.lineup_team_points  AS off_team_points,
+        tt.opp_points - a.lineup_opp_points AS off_opp_points,
+
+        -- =========================
+        -- ON-OFF
+        -- =========================
+
+        (
+            (100.0 * a.lineup_team_points / NULLIF(a.offensive_possessions,0))
+            -
+            (100.0 * (tt.team_points - a.lineup_team_points) / NULLIF(tt.team_offensive_possessions - a.offensive_possessions,0))
+        ) AS onoff_offensive_rating,
+
+        (
+            (100.0 * a.lineup_opp_points / NULLIF(a.defensive_possessions,0))
+            -
+            (100.0 * (tt.opp_points - a.lineup_opp_points) / NULLIF(tt.team_defensive_possessions - a.defensive_possessions,0))
+        ) AS onoff_defensive_rating,
+
+        (
+            (100.0 * a.lineup_team_points / NULLIF(a.offensive_possessions,0))
+            -
+            (100.0 * a.lineup_opp_points / NULLIF(a.defensive_possessions,0))
+        )
+        -
+        (
+            (100.0 * (tt.team_points - a.lineup_team_points) / NULLIF(tt.team_offensive_possessions - a.offensive_possessions,0))
+            -
+            (100.0 * (tt.opp_points - a.lineup_opp_points) / NULLIF(tt.team_defensive_possessions - a.defensive_possessions,0))
+        ) AS onoff_net_rating,
 
         bs.cat_insert_date
 
@@ -234,6 +298,14 @@ final AS (
             match_id,
             team_id,
             player_id
+        )
+    LEFT JOIN team_totals tt
+        USING(
+            edition_id,
+            competition_id,
+            competition_phase,
+            match_id,
+            team_id
         )
 
 )
