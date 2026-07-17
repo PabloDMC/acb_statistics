@@ -4,8 +4,8 @@ import logging
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Tuple, Dict, Any
-from src.api_acb_client import ApiAcbClient
-from src.config import (
+from src.ingestion.api_acb_client import ApiAcbClient
+from src.common.config import (
     ACB_BASE_URL, 
     ACB_API_KEY, 
     LANDING_DIR, 

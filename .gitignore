@@ -4,9 +4,8 @@ __pycache__/
 data/
 logs/
 *.log
-src/migrate_history.py
+src/ingestion/migrate_history.py
 src/shots.py
-src/possessions.ipynb
 dbt_acb/target/
 dbt_acb/dbt_packages/
 dbt_acb/profiles.yml
