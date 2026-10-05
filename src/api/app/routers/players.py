@@ -1,190 +1,111 @@
-import numpy as np
-from fastapi import APIRouter
-from src.api.app.database import get_connection
+from __future__ import annotations
 
-router = APIRouter(
-    prefix="/players",
-    tags=["Players"]
+from typing import Annotated
+
+import duckdb
+from fastapi import APIRouter, Depends, Query
+
+from app.core.db import get_db
+from app.schemas.common import CompetitionFilters, PageParams, PaginatedResponse
+from app.schemas.game_highs import PlayerGameHighs
+from app.schemas.match import ShotEvent
+from app.schemas.player import (
+    PlayerBasicInfo,
+    PlayerGameLogEntry,
+    PlayerImpact,
+    PlayerLineupParticipation,
+    PlayerProfile,
+    PlayerShootingProfile,
+    PlayerSummary,
+    PlayerTotals,
 )
+from app.services import player_service
 
-@router.get("/")
-def get_players():
+router = APIRouter(prefix="/players", tags=["players"])
 
-    conn = get_connection()
+DbDep = Annotated[duckdb.DuckDBPyConnection, Depends(get_db)]
+FiltersDep = Annotated[CompetitionFilters, Depends()]
+PageDep = Annotated[PageParams, Depends()]
 
-    result = conn.execute(
-        """
-        SELECT DISTINCT
-            player_id,
-            player_nickname
-        FROM main_marts.dim_rosters
-        ORDER BY player_nickname
-        """
-    ).fetchdf()
 
-    conn.close()
+@router.get("", response_model=PaginatedResponse[PlayerSummary])
+def list_players(
+    cur: DbDep,
+    filters: FiltersDep,
+    page: PageDep,
+    q: str | None = Query(default=None, description="Búsqueda por nombre"),
+):
+    items, total = player_service.list_players(cur, q, filters, page)
+    return PaginatedResponse(
+        items=items, total=total, limit=page.limit, offset=page.offset,
+        has_more=page.offset + page.limit < total,
+    )
 
-    return result.to_dict(orient="records")
 
-@router.get("/{player_id}")
-def get_players(player_id: int):
+@router.get("/{player_id}", response_model=PlayerBasicInfo)
+def get_player(player_id: int, cur: DbDep):
+    return player_service.get_basic_info(cur, player_id)
 
-    conn = get_connection()
 
-    result = conn.execute(
-        """
-        SELECT DISTINCT
-            player_id,
-            player_nickname
-        FROM main_marts.dim_rosters
-        WHERE player_id = ?
-        """,
-        [player_id]
-    ).fetchdf()
+@router.get("/{player_id}/profile", response_model=PlayerProfile)
+def get_player_profile(player_id: int, cur: DbDep, filters: FiltersDep):
+    """
+    Endpoint pensado para pintar de una sola llamada la página de jugador
+    estilo Basketball-Reference (perfil + producción + eficiencia + impacto
+    + shooting). Ver punto 32 del resumen del proyecto.
+    """
+    return player_service.get_profile(cur, player_id, filters)
 
-    conn.close()
 
-    return result.to_dict(orient="records")
+@router.get("/{player_id}/totals", response_model=list[PlayerTotals])
+def get_player_totals(player_id: int, cur: DbDep, filters: FiltersDep):
+    return player_service.get_totals(cur, player_id, filters)
 
-@router.get("/{player_id}/totals")
-def get_players(player_id: int):
 
-    conn = get_connection()
+@router.get("/{player_id}/games", response_model=PaginatedResponse[PlayerGameLogEntry])
+def get_player_games(player_id: int, cur: DbDep, filters: FiltersDep, page: PageDep):
+    items, total = player_service.get_game_log(cur, player_id, filters, page)
+    return PaginatedResponse(
+        items=items, total=total, limit=page.limit, offset=page.offset,
+        has_more=page.offset + page.limit < total,
+    )
 
-    result = conn.execute(
-        """
-        SELECT *
-        FROM main_marts.agg_player_totals
-        WHERE player_id = ?
-        ORDER BY edition_id, competition_id, competition_phase
-        """,
-        [player_id]
-    ).fetchdf()
 
-    conn.close()
+@router.get("/{player_id}/shooting", response_model=list[PlayerShootingProfile])
+def get_player_shooting(player_id: int, cur: DbDep, filters: FiltersDep):
+    return player_service.get_shooting_profile(cur, player_id, filters)
 
-    return result.replace({np.nan: None}).to_dict(orient="records")
 
-@router.get("/{player_id}/games")
-def get_players(player_id: int):
+@router.get("/{player_id}/impact", response_model=list[PlayerImpact])
+def get_player_impact(player_id: int, cur: DbDep, filters: FiltersDep):
+    return player_service.get_impact(cur, player_id, filters)
 
-    conn = get_connection()
 
-    result = conn.execute(
-        """
-        SELECT dm.match_start_time, dm.round_id, fpg.*
-        FROM main_marts.fact_player_games fpg
-        LEFT JOIN main_marts.dim_matches dm
-        ON fpg.match_id = dm.match_id
-        WHERE player_id = ?
-        ORDER BY fpg.edition_id, fpg.competition_id, fpg.competition_phase, dm.round_number
-        """,
-        [player_id]
-    ).fetchdf()
+@router.get("/{player_id}/shots", response_model=list[ShotEvent])
+def get_player_shots(
+    player_id: int,
+    cur: DbDep,
+    filters: FiltersDep,
+    clutch_only: bool = Query(default=False, description="Solo lanzamientos marcados como clutch"),
+):
+    """
+    Lanzamientos de temporada completa (no agregados), pensados para un shot
+    chart de jugador. Para un único partido, usa /matches/{match_id}/shots.
+    """
+    return player_service.get_shots(cur, player_id, filters, clutch_only)
 
-    conn.close()
 
-    return result.replace({np.nan: None}).to_dict(orient="records")
+@router.get("/{player_id}/game-highs", response_model=PlayerGameHighs)
+def get_player_game_highs(player_id: int, cur: DbDep, filters: FiltersDep):
+    """Mejor marca de cada estadística y el partido en el que ocurrió."""
+    return player_service.get_game_highs(cur, player_id, filters)
 
-@router.get("/{player_id}/game-highs")
-def get_players(player_id: int):
 
-    conn = get_connection()
-
-    result = conn.execute(
-        """
-        SELECT 
-            player_id,
-            max(seconds) as seconds,
-            max(points) as points,
-            max(free_throws_made) as free_throws_made,
-            max(free_throws_attempted) as free_throws_attempted,
-            max(two_pointers_made) as two_pointers_made,
-            max(two_pointers_attempted) as two_pointers_attempted,
-            max(three_pointers_made) as three_pointers_made,
-            max(three_pointers_attempted) as three_pointers_attempted,
-            max(field_goals_made) as field_goals_made,
-            max(field_goals_attempted) as field_goals_attempted,
-            max(dunks) as dunks,
-            max(assists) as assists,
-            max(off_rebounds) as off_rebounds,
-            max(def_rebounds) as def_rebounds,
-            max(total_rebounds) as total_rebounds,
-            max(steals) as steals,
-            max(turnovers) as turnovers,
-            max(blocks) as blocks,
-            max(received_blocks) as received_blocks,
-            max(personal_fouls) as personal_fouls,
-            max(fouls_drawn) as fouls_drawn,
-            max(plus_minus) as plus_minus,
-            max(rating) as rating
-        FROM main_marts.fact_player_games
-        WHERE player_id = ?
-        GROUP BY player_id
-        """,
-        [player_id]
-    ).fetchdf()
-
-    conn.close()
-
-    return result.replace({np.nan: None}).to_dict(orient="records")
-
-@router.get("/{player_id}/shooting")
-def get_players(player_id: int):
-
-    conn = get_connection()
-
-    result = conn.execute(
-        """
-        SELECT *
-        FROM main_marts.agg_player_shooting
-        WHERE player_id = ?
-        ORDER BY edition_id, competition_id, competition_phase
-        """,
-        [player_id]
-    ).fetchdf()
-
-    conn.close()
-
-    return result.replace({np.nan: None}).to_dict(orient="records")
-
-@router.get("/{player_id}/shooting-zones")
-def get_players(player_id: int):
-
-    conn = get_connection()
-
-    result = conn.execute(
-        """
-        SELECT *
-        FROM main_marts.agg_player_shooting_zones
-        WHERE player_id = ?
-        ORDER BY edition_id, competition_id, competition_phase
-        """,
-        [player_id]
-    ).fetchdf()
-
-    conn.close()
-
-    return result.replace({np.nan: None}).to_dict(orient="records")
-
-@router.get("/{player_id}/lineups")
-def get_players(player_id: int):
-
-    conn = get_connection()
-
-    result = conn.execute(
-        """
-        SELECT *
-        FROM main_marts.agg_lineup_combinations
-        WHERE player_count = 5
-        AND ? IN player_ids
-        ORDER BY edition_id, competition_id, competition_phase
-        """,
-        [player_id]
-    ).fetchdf()
-    
-    conn.close()
-    
-    #result["player_ids"] = result["player_ids"].apply(list)
-    result = result.astype(object)
-    return result.replace({np.nan: None}).to_dict(orient="records")
+@router.get("/{player_id}/lineups", response_model=list[PlayerLineupParticipation])
+def get_player_lineups(
+    player_id: int,
+    cur: DbDep,
+    filters: FiltersDep,
+    limit: int = Query(default=10, ge=1, le=100),
+):
+    return player_service.get_lineup_participations(cur, player_id, filters, limit)
