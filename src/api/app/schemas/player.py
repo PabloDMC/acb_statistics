@@ -99,7 +99,12 @@ class PlayerGameLogEntry(BaseModel):
 # ---- Shooting (agg_player_shooting) -------------------------------------------
 
 class ZoneShooting(BaseModel):
+    # zone_id identifica la zona; `zone` (basic) se repite en varias zonas que se
+    # distinguen por lado (`area`) y distancia (`range`)
+    zone_id: int | None = None
     zone: str
+    area: str | None = None
+    range: str | None = None
     attempted: int | None = None
     made: int | None = None
     pct: float | None = None

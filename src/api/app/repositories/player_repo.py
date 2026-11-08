@@ -288,14 +288,17 @@ def get_shooting_zones(
     cur.execute(
         f"""
         SELECT
+            z.zone_id,
             z.shot_zone_basic AS zone,
+            z.shot_zone_area AS area,
+            z.shot_zone_range AS range,
             z.field_goals_attempted,
             z.field_goals_made,
             z.field_goals_pct,
             z.field_goal_frequency
         FROM main_marts.agg_player_shooting_zones z
         {fb.where_sql()}
-        ORDER BY z.field_goal_frequency DESC
+        ORDER BY z.field_goal_frequency DESC, z.zone_id
         """,
         fb.params,
     )
@@ -322,14 +325,17 @@ def get_shooting_zones_batch(
         f"""
         SELECT
             z.edition_id, z.competition_id, z.competition_phase, z.team_id,
+            z.zone_id,
             z.shot_zone_basic AS zone,
+            z.shot_zone_area AS area,
+            z.shot_zone_range AS range,
             z.field_goals_attempted,
             z.field_goals_made,
             z.field_goals_pct,
             z.field_goal_frequency
         FROM main_marts.agg_player_shooting_zones z
         {fb.where_sql()}
-        ORDER BY z.field_goal_frequency DESC
+        ORDER BY z.field_goal_frequency DESC, z.zone_id
         """,
         fb.params,
     )
