@@ -58,7 +58,10 @@ def _shooting_from_row(row: dict, zones: list[dict]) -> PlayerShootingProfile:
         dunks=shooting_split(row, "dunks"),
         zones=[
             {
+                "zone_id": z.get("zone_id"),
                 "zone": z["zone"],
+                "area": z.get("area"),
+                "range": z.get("range"),
                 "attempted": z.get("field_goals_attempted"),
                 "made": z.get("field_goals_made"),
                 "pct": z.get("field_goals_pct"),
