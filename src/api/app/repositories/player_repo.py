@@ -8,8 +8,7 @@ Huecos reales del esquema que afectan a este fichero:
   nacimiento/nacionalidad/posición/altura- en ningún sitio del warehouse).
 - agg_player_totals y agg_team_totals NO tienen club_id propio (solo
   team_id): para poder filtrar/mostrar club_id hay que unir con dim_teams.
-- No existe nombre de club en ninguna tabla. club.name se deja en NULL por
-  ahora (ver README) hasta que exista un dim_clubs real en dbt.
+- El nombre de club sale de dim_teams.club_name (dim_clubs en dbt).
 """
 
 from __future__ import annotations
@@ -22,7 +21,8 @@ from app.repositories.base import SQLFilterBuilder, pagination_sql, resolve_sort
 from app.schemas.common import CompetitionFilters, PageParams
 
 _DISPLAY_NAME_SQL = (
-    "COALESCE(NULLIF(player_nickname, ''), player_first_name || ' ' || player_last_name)"
+    # trim: algunos nombres vienen del feed con espacios delante (" Alex Antetokounmpo")
+    "trim(COALESCE(NULLIF(trim(player_nickname), ''), player_first_name || ' ' || player_last_name))"
 )
 
 # ---------------------------------------------------------------------------
@@ -79,25 +79,31 @@ def list_players(
         fb.params.append(f"%{name_query}%")
     where_sql = fb.where_sql()
 
-    sort_col, direction = resolve_sort(page.sort, {"name", "id"}, default="name")
-    sort_col_sql = {"name": "name", "id": "r.player_id"}[sort_col]
+    sort_col, direction = resolve_sort(page.sort, {"name", "id"}, default="name", default_direction="ASC")
+    # orden alfabético sin distinguir mayúsculas ni acentos (si no, "Ángel" sale detrás de la Z)
+    sort_col_sql = {"name": "lower(strip_accents(r.name))", "id": "r.id"}[sort_col]
 
+    # Primero se elige la fila más reciente por jugador (solo dim_rosters) y después se une
+    # dim_teams para esas filas: antes se unía para todas las filas del histórico.
     cur.execute(
         f"""
-        SELECT * FROM (
+        WITH r AS (
             SELECT
                 r.player_id AS id,
                 {_DISPLAY_NAME_SQL.replace('player_', 'r.player_')} AS name,
-                r.team_id AS current_team_id, tm.full_name AS current_team_name,
-                r.club_id AS current_club_id,
-                ROW_NUMBER() OVER (PARTITION BY r.player_id ORDER BY r.edition_id DESC) AS rn
+                r.team_id, r.edition_id, r.competition_id, r.club_id
             FROM main_marts.dim_rosters r
-            LEFT JOIN main_marts.dim_teams tm
-                ON tm.team_id = r.team_id AND tm.edition_id = r.edition_id AND tm.competition_id = r.competition_id
             {where_sql}
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY r.player_id ORDER BY r.edition_id DESC) = 1
         )
-        WHERE rn = 1
-        ORDER BY {sort_col_sql} {direction}
+        SELECT
+            r.id, r.name,
+            r.team_id AS current_team_id, tm.full_name AS current_team_name,
+            r.club_id AS current_club_id, tm.club_name AS current_club_name
+        FROM r
+        LEFT JOIN main_marts.dim_teams tm
+            ON tm.team_id = r.team_id AND tm.edition_id = r.edition_id AND tm.competition_id = r.competition_id
+        ORDER BY {sort_col_sql} {direction}, r.id
         {pagination_sql(page)}
         """,
         fb.params,
@@ -126,7 +132,7 @@ _TOTALS_SELECT = """
         t.competition_id, c.competition_name,
         t.competition_phase,
         t.team_id, tm.full_name AS team_name,
-        tm.club_id, CAST(NULL AS VARCHAR) AS club_name,
+        tm.club_id, tm.club_name,
 
         t.games AS games_played, t.games_started, t.seconds,
         t.points, t.assists, t.total_rebounds AS rebounds,
@@ -174,11 +180,15 @@ def get_game_log(
     player_id: int,
     filters: CompetitionFilters,
     page: PageParams,
+    include_dnp: bool = False,
 ) -> tuple[list[dict], int]:
     fb = SQLFilterBuilder(table_alias="g")
     fb.clauses.append("g.player_id = ?")
     fb.params.append(player_id)
     fb.add_competition_filters(filters)  # g tiene club_id y team_id nativos
+    if not include_dnp:
+        # mismo criterio que los partidos jugados de agg_player_totals
+        fb.clauses.append("g.seconds > 0")
     where_sql = fb.where_sql()
 
     sort_col, direction = resolve_sort(
@@ -238,7 +248,7 @@ def get_shooting_profile(
             s.competition_id, c.competition_name,
             s.competition_phase,
             s.team_id, tm.full_name AS team_name,
-            s.club_id, CAST(NULL AS VARCHAR) AS club_name,
+            s.club_id, tm.club_name,
 
             s.field_goals_made, s.field_goals_attempted, s.field_goals_pct,
             s.two_pointers_made, s.two_pointers_attempted, s.two_pointers_pct,
@@ -292,6 +302,44 @@ def get_shooting_zones(
     return cursor_to_dicts(cur)
 
 
+_ZONE_KEY = ("edition_id", "competition_id", "competition_phase", "team_id")
+
+
+def get_shooting_zones_batch(
+    cur: duckdb.DuckDBPyConnection, player_id: int, filters: CompetitionFilters
+) -> dict[tuple, list[dict]]:
+    """
+    Zonas de todas las filas de shooting del jugador en UNA consulta, agrupadas por
+    (edition_id, competition_id, competition_phase, team_id). Sustituye a llamar a
+    get_shooting_zones por cada fila (N+1: ~40 consultas para un jugador veterano).
+    """
+    fb = SQLFilterBuilder(table_alias="z")
+    fb.clauses.append("z.player_id = ?")
+    fb.params.append(player_id)
+    fb.add_competition_filters(filters)
+
+    cur.execute(
+        f"""
+        SELECT
+            z.edition_id, z.competition_id, z.competition_phase, z.team_id,
+            z.shot_zone_basic AS zone,
+            z.field_goals_attempted,
+            z.field_goals_made,
+            z.field_goals_pct,
+            z.field_goal_frequency
+        FROM main_marts.agg_player_shooting_zones z
+        {fb.where_sql()}
+        ORDER BY z.field_goal_frequency DESC
+        """,
+        fb.params,
+    )
+    zones: dict[tuple, list[dict]] = {}
+    for row in cursor_to_dicts(cur):
+        key = tuple(row.pop(k) for k in _ZONE_KEY)
+        zones.setdefault(key, []).append(row)
+    return zones
+
+
 # ---------------------------------------------------------------------------
 # Impacto: On-court / On-off — todo vive en agg_player_totals
 # ---------------------------------------------------------------------------
@@ -314,11 +362,14 @@ def get_impact(
             t.competition_id, c.competition_name,
             t.competition_phase,
 
-            (t.plus_minus * 100.0 / NULLIF(t.possessions, 0)) AS on_court_plus_minus_per_100,
+            -- `possessions` es ataque + defensa: 100 posesiones de partido son 200 de esas.
+            -- Diferencial de quinteto (team_points - opp_points), no el +/- del boxscore: este
+            -- incluye partidos sin play-by-play y no casa con las posesiones.
+            ((t.team_points - t.opp_points) * 200.0 / NULLIF(t.possessions, 0)) AS on_court_plus_minus_per_100,
             t.offensive_rating AS on_court_offensive_rating,
             t.defensive_rating AS on_court_defensive_rating,
             t.net_rating AS on_court_net_rating,
-            (t.net_rating - t.onoff_net_rating) AS off_court_net_rating,
+            t.off_net_rating AS off_court_net_rating,
             t.onoff_net_rating AS on_off_net_rating,
             t.possessions AS possessions_on_court
         FROM main_marts.agg_player_totals t

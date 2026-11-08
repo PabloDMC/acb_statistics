@@ -21,8 +21,8 @@ import duckdb
 from app.core.serialization import cursor_to_dicts
 
 _DISPLAY_NAME_SQL = (
-    "COALESCE(NULLIF(player_nickname, ''), "
-    "player_first_name || ' ' || player_last_name)"
+    # trim: algunos nombres vienen del feed con espacios delante (" Alex Antetokounmpo")
+    "trim(COALESCE(NULLIF(trim(player_nickname), ''), player_first_name || ' ' || player_last_name))"
 )
 
 

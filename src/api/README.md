@@ -79,7 +79,8 @@ Documentación interactiva en `http://localhost:8000/docs`.
   de jugador (perfil + totales + shooting + impacto + top lineups) en una
   sola llamada
 - `GET /api/v1/players/{id}/totals`
-- `GET /api/v1/players/{id}/games` — partido a partido, paginado
+- `GET /api/v1/players/{id}/games` — partido a partido, paginado. Por defecto solo partidos con
+  minutos (como los partidos jugados de los totales); `include_dnp=true` añade los 0:00
 - `GET /api/v1/players/{id}/shooting` — incluye desglose por zonas
 - `GET /api/v1/players/{id}/impact` — on-court / on-off
 - `GET /api/v1/players/{id}/lineups` — quintetos en los que participa
@@ -214,13 +215,15 @@ un endpoint que sí pide `team_id`.
   "mejor marca histórica en una sola temporada" (al estilo "single-season
   leaders" de Basketball-Reference).
 - **`scope=career`**: agrega (`SUM`, o fórmula ponderada para porcentajes/
-  ratings) todas las filas que cumplan tus filtros, agrupando solo por
-  jugador. Es la carrera completa (o la carrera dentro de un competition_id,
-  si lo filtras).
+  ratings) todas las filas que cumplan tus filtros, agrupando por jugador
+  (leaderboard de jugadores) o por **club** (leaderboard de equipos: un
+  `team_id` es solo una temporada y competición). Es la carrera completa (o
+  la carrera dentro de un competition_id, si lo filtras).
 - **`per`**: `total` (por defecto), `per_game`, `per_100_poss`, `per_40_min`.
   Solo válido sobre métricas contables (`points`, `assists`, `rebounds`,
   `steals`, `blocks`, `rating`) — sobre un porcentaje o un rating no tiene
   sentido (ya son una tasa) y el endpoint devuelve 422 si lo intentas.
+  `per_100_poss` solo suma partidos con play-by-play (`has_possessions`).
 - Nota honesta sobre `onoff_net_rating` en `scope=career`: se calcula como
   media ponderada por posesiones de los on/off de cada fila, no reconstruido
   desde cero a partir de lineups. Es razonable para ordenar un ranking, no
@@ -328,3 +331,32 @@ diferencia ≤5 puntos y ≤5 min restantes) y volviendo a agregar puntos/
 rebotes/asistencias/etc. ahí. Es trabajo de dbt, no de la API — si quieres,
 en la siguiente pasada de ingesta lo diseñamos juntos (encaja con lo que ya
 comentaste de revisar la construcción de posesiones).
+
+---
+
+## v4: correcciones tras revisar los marts (octubre 2026)
+
+Requiere los marts regenerados con `dbt build --full-refresh` (ver informe de cambios).
+
+### Corregido
+- **Ratings de equipo en `scope=career`**: se dividían entre `possessions` (ataque +
+  defensa) y salían a la mitad. Ahora el ofensivo usa `offensive_possessions` y el
+  defensivo `defensive_possessions`.
+- **`per=per_100_poss`**: mismo problema; ahora divide entre las posesiones de ataque
+  (del equipo, o del equipo con el jugador en pista).
+- **On/off en `scope=career`**: ya no es una media ponderada de on/off por temporada,
+  sino el cálculo exacto con las columnas `off_*` de `agg_player_totals`.
+- **`/players/{id}/impact`**: `off_court_net_rating` sale de `off_net_rating` y
+  `on_court_plus_minus_per_100` usa posesiones de partido (no ataque + defensa).
+- **`/teams/{id}/totals` y `/teams/{id}/games`**: `possessions` son las posesiones de
+  ataque del equipo (antes ataque + defensa, el doble de lo esperable). `wins`/`losses`
+  vienen ya de `agg_team_totals` y respetan la fase (antes sumaban liga regular y playoff).
+- **`/matches/{id}/lineups`**: orden cronológico real. `start_time`/`end_time` son
+  segundos **restantes** del cuarto. Cada tramo trae dos filas (local y visitante) y cambia
+  cuando cambia cualquiera de los 10 jugadores en pista.
+- **`club.name`** ya no es `null`: sale de `dim_teams.club_name` (`dim_clubs`).
+- **`/players/{id}/shots`**: `player.name` relleno.
+
+### Cambiado
+- `metric`, `scope` y `per` de `/leaderboards/*` son `Enum`/`Literal`: FastAPI valida el
+  valor (422 automático) y lo lista en `/docs`.

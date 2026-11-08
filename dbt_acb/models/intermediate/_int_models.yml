@@ -8,6 +8,14 @@ models:
           - unique
           - not_null
 
+  - name: int_team_boxscore
+    description: "Totales oficiales de equipo por partido, incluidas las estadísticas 'de equipo'."
+    columns:
+      - name: id
+        tests:
+          - unique
+          - not_null
+
   - name: int_matches
     columns:
       - name: match_id
@@ -16,6 +24,33 @@ models:
           - not_null
 
   - name: int_play_by_play
+    description: "Eventos del play-by-play con orden real (event_idx) y equipo tomado del boxscore."
+    columns:
+      - name: id
+        tests:
+          - unique
+          - not_null
+
+  - name: int_pbp_enriched
+    description: "Posesión y quintetos en pista de cada evento. Modelo Python; ver su docstring."
+    columns:
+      - name: match_id
+        tests:
+          - not_null
+      - name: event_idx
+        tests:
+          - not_null
+
+  - name: int_possessions
+    description: "Una fila por posesión (racha de marcadores de un mismo equipo dentro de un cuarto)."
+    columns:
+      - name: id
+        tests:
+          - unique
+          - not_null
+
+  - name: int_stints
+    description: "Una fila por tramo con los mismos 10 jugadores en pista."
     columns:
       - name: id
         tests:

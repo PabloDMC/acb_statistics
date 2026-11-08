@@ -1,226 +1,95 @@
 {{ config(
-    materialized='incremental',
+    materialized='table',
     schema='marts',
     tags=['acb_analytics']
 ) }}
 
+-- Una fila por tramo y equipo: los 5 jugadores del equipo y los 5 del rival mientras ninguno de
+-- los 10 cambia. Cada tramo de int_stints da dos filas (local y visitante), de modo que
+--   suma de offensive_possessions / team_points de un equipo = sus totales del partido.
+-- start_time y end_time son segundos RESTANTES del cuarto (start_time > end_time).
+
 WITH st AS (
-
-    SELECT
-        match_id,
-        team_id,
-        stint_id,
-        quarter,
-        start_time,
-        end_time,
-        score_h_start,
-        score_h_end,
-        score_a_start,
-        score_a_end,
-        player_ids
-    FROM {{ ref('int_lineups') }}
-
-    {% if is_incremental() %}
-    WHERE match_id NOT IN (
-        SELECT DISTINCT match_id
-        FROM {{ this }}
-    )
-    {% endif %}
-
+    SELECT *
+    FROM {{ ref('int_stints') }}
 ),
 
 m AS (
-
     SELECT
         match_id,
         edition_id,
         competition_id,
         round_type AS competition_phase,
-        home_team_id,
         home_team_club_id,
-        away_team_id,
         away_team_club_id,
         home_team_full_name,
         away_team_full_name
     FROM {{ ref('int_matches') }}
-
 ),
 
-joined AS (
-
+sides AS (
     SELECT
-        st.*,
-
-        m.edition_id,
-        m.competition_id,
-        m.competition_phase,
-
-        m.home_team_id,
-        m.home_team_club_id,
-        m.away_team_id,
-        m.away_team_club_id,
-
-        CASE
-            WHEN st.team_id = m.home_team_id THEN m.home_team_club_id
-            ELSE m.away_team_club_id
-        END AS club_id,
-
-        CASE
-            WHEN st.team_id = m.home_team_id THEN m.home_team_full_name
-            ELSE m.away_team_full_name
-        END AS team_full_name
-
+        st.match_id, st.quarter, st.stint_seq, st.start_time, st.end_time, st.seconds,
+        TRUE AS is_home,
+        st.home_team_id AS team_id,
+        st.away_team_id AS opponent_team_id,
+        st.home_player_ids AS player_ids,
+        st.away_player_ids AS opponent_player_ids,
+        st.home_points AS team_points,
+        st.away_points AS opp_points,
+        st.home_possessions AS offensive_possessions,
+        st.away_possessions AS defensive_possessions
     FROM st
 
-    LEFT JOIN m
-    USING(match_id)
-
-),
-
-scoring AS (
+    UNION ALL
 
     SELECT
-
-        *,
-
-        CASE
-            WHEN team_id = home_team_id THEN score_h_start
-            ELSE score_a_start
-        END AS score_team_start,
-
-        CASE
-            WHEN team_id = home_team_id THEN score_h_end
-            ELSE score_a_end
-        END AS score_team_end,
-
-        CASE
-            WHEN team_id = home_team_id THEN score_a_start
-            ELSE score_h_start
-        END AS score_opp_start,
-
-        CASE
-            WHEN team_id = home_team_id THEN score_a_end
-            ELSE score_h_end
-        END AS score_opp_end,
-
-        start_time-end_time AS duration_seconds
-
-    FROM joined
-
-),
-
-poss AS (
-
-    SELECT
-
-        p.*,
-
-        m.home_team_id,
-
-        CASE
-            WHEN p.team_id = m.home_team_id THEN p.score_h_start
-            ELSE p.score_a_start
-        END AS score_team_start,
-
-        CASE
-            WHEN p.team_id = m.home_team_id THEN p.score_h_end
-            ELSE p.score_a_end
-        END AS score_team_end,
-
-        CASE
-            WHEN p.team_id = m.home_team_id THEN p.score_a_start
-            ELSE p.score_h_start
-        END AS score_opp_start,
-
-        CASE
-            WHEN p.team_id = m.home_team_id THEN p.score_a_end
-            ELSE p.score_h_end
-        END AS score_opp_end
-
-    FROM {{ ref('int_possessions') }} p
-    LEFT JOIN m USING(match_id)
-    WHERE p.start_time > p.end_time
-
-),
-
-possessions AS (
-
-    SELECT
-
-        s.match_id,
-        s.team_id,
-        s.stint_id,
-
-        COUNT_IF(p.team_id = s.team_id) AS offensive_possessions,
-        COUNT_IF(p.team_id <> s.team_id) AS defensive_possessions,
-
-        SUM(
-            CASE
-                WHEN p.team_id = s.team_id THEN p.score_team_end - p.score_team_start
-                ELSE 0
-            END
-        ) AS team_points,
-
-        SUM(
-            CASE
-                WHEN p.team_id <> s.team_id THEN p.score_team_end - p.score_team_start
-                ELSE 0
-            END
-        ) AS opp_points
-
-    FROM scoring s
-    LEFT JOIN poss p
-        ON p.match_id = s.match_id
-       AND p.quarter = s.quarter
-       AND p.start_time <= s.start_time
-       AND p.end_time >= s.end_time
-    GROUP BY
-        s.match_id,
-        s.team_id,
-        s.stint_id
-
+        st.match_id, st.quarter, st.stint_seq, st.start_time, st.end_time, st.seconds,
+        FALSE AS is_home,
+        st.away_team_id,
+        st.home_team_id,
+        st.away_player_ids,
+        st.home_player_ids,
+        st.away_points,
+        st.home_points,
+        st.away_possessions,
+        st.home_possessions
+    FROM st
 )
 
 SELECT
 
-    s.edition_id,
-    s.competition_id,
-    s.competition_phase,
+    m.edition_id,
+    m.competition_id,
+    m.competition_phase,
 
     s.match_id,
 
     s.team_id,
-    s.club_id,
-    s.team_full_name,
+    CASE WHEN s.is_home THEN m.home_team_club_id ELSE m.away_team_club_id END AS club_id,
+    CASE WHEN s.is_home THEN m.home_team_full_name ELSE m.away_team_full_name END AS team_full_name,
+    s.opponent_team_id,
+    s.is_home,
 
     s.quarter,
 
-    s.stint_id,
+    s.stint_seq AS stint_id,
 
     s.start_time,
     s.end_time,
 
-    s.duration_seconds,
+    s.seconds AS duration_seconds,
 
-    s.score_team_start,
-    s.score_team_end,
+    s.team_points,
+    s.opp_points,
+    s.team_points - s.opp_points AS plus_minus,
 
-    s.score_opp_start,
-    s.score_opp_end,
+    s.offensive_possessions,
+    s.defensive_possessions,
+    s.offensive_possessions + s.defensive_possessions AS total_possessions,
 
-    (s.score_team_end-s.score_team_start) - (s.score_opp_end-s.score_opp_start) AS plus_minus,
+    s.player_ids,
+    s.opponent_player_ids
 
-    COALESCE(p.offensive_possessions,0) AS offensive_possessions,
-    COALESCE(p.defensive_possessions,0) AS defensive_possessions,
-    COALESCE(p.offensive_possessions,0) + COALESCE(p.defensive_possessions,0) AS total_possessions,
-    COALESCE(p.team_points,0) AS team_points,
-    COALESCE(p.opp_points,0) AS opp_points,
-
-    s.player_ids
-
-FROM scoring s
-
-LEFT JOIN possessions p
-ON s.match_id=p.match_id
-AND s.team_id=p.team_id
-AND s.stint_id=p.stint_id
+FROM sides s
+LEFT JOIN m USING (match_id)

@@ -127,6 +127,9 @@ def shooting_leaderboard(
             rank=row["rank"],
             player={"id": row["player_id"], "name": names_by_id.get(row["player_id"])},
             club_team=club_team_ref(row),
+            context=competition_context(
+                {**row, "edition_name": row.get("edition_name") or ("Carrera" if row.get("edition_id") is None else None)}
+            ),
             zone=zone,
             clutch_only=clutch_only,
             made=row["made"],

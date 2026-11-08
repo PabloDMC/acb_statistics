@@ -134,10 +134,8 @@ def list_players(
             id=row["id"],
             name=row["name"],
             current_team=named_ref(row, "current_team_id", "current_team_name"),
-            # No hay nombre de club en el esquema actual (ver player_repo.py):
-            # se expone el id, el nombre queda en None hasta tener dim_clubs.
             current_club=(
-                {"id": row["current_club_id"], "name": None}
+                {"id": row["current_club_id"], "name": row.get("current_club_name")}
                 if row.get("current_club_id") is not None
                 else None
             ),
@@ -161,10 +159,14 @@ def get_totals(
 
 
 def get_game_log(
-    cur: duckdb.DuckDBPyConnection, player_id: int, filters: CompetitionFilters, page: PageParams
+    cur: duckdb.DuckDBPyConnection,
+    player_id: int,
+    filters: CompetitionFilters,
+    page: PageParams,
+    include_dnp: bool = False,
 ) -> tuple[list[PlayerGameLogEntry], int]:
     player_repo.require_basic_info(cur, player_id)
-    rows, total = player_repo.get_game_log(cur, player_id, filters, page)
+    rows, total = player_repo.get_game_log(cur, player_id, filters, page, include_dnp)
     items = [
         PlayerGameLogEntry(
             match_id=row["match_id"],
@@ -194,8 +196,9 @@ def get_shooting_profile(
 ) -> list[PlayerShootingProfile]:
     player_repo.require_basic_info(cur, player_id)
     rows = player_repo.get_shooting_profile(cur, player_id, filters)
+    zones = player_repo.get_shooting_zones_batch(cur, player_id, filters)
     return [
-        _shooting_from_row(row, player_repo.get_shooting_zones(cur, player_id, row))
+        _shooting_from_row(row, zones.get(tuple(row.get(k) for k in player_repo._ZONE_KEY), []))
         for row in rows
     ]
 
@@ -231,11 +234,11 @@ def get_shots(
     chart de jugador — a diferencia de /matches/{id}/shots, que es de un
     único partido.
     """
-    player_repo.require_basic_info(cur, player_id)
+    basic = player_repo.require_basic_info(cur, player_id)
     rows = player_repo.get_shots(cur, player_id, filters, clutch_only)
     return [
         ShotEvent(
-            player={"id": player_id, "name": None},  # ya se conoce por la URL, no hace falta resolverlo
+            player={"id": player_id, "name": basic.get("name")},
             match_id=row.get("match_id"),
             x=row["x"],
             y=row["y"],
@@ -255,6 +258,9 @@ def get_game_highs(
 ) -> PlayerGameHighs:
     player_repo.require_basic_info(cur, player_id)
     row = player_repo.get_game_highs(cur, player_id, filters)
+    # sin partidos en esos filtros: 404 como el perfil, no un 200 con todo a null
+    if not row or all(v is None for k, v in row.items() if k.endswith("_value")):
+        raise ResourceNotFoundError("player_game_highs_for_filters", {"player_id": player_id, **filters.model_dump()})
     return PlayerGameHighs(**{
         name: StatHigh(value=row.get(f"{name}_value"), match_id=row.get(f"{name}_match_id"))
         for name in PlayerGameHighs.model_fields

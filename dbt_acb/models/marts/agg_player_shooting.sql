@@ -4,74 +4,18 @@
     tags=['acb_analytics']
 ) }}
 
-WITH pbp AS (
+-- Tiro de campo o tiro libre se decide por el valor del lanzamiento, no por la zona: hay
+-- lanzamientos antiguos sin coordenadas (zona nula) que antes no contaban en ningún lado.
+-- Mate, asistencia y 2+1 vienen ya resueltos por lanzamiento en fact_shots (emparejado con su
+-- evento del play-by-play). Antes se cruzaba aquí por segundo y se duplicaban filas: los tiros
+-- libres salían multiplicados por 3.
+WITH shots AS (
 
     SELECT
-        match_id,
-        quarter,
-        minute,
-        second,
-        player_id,
-        team_id,
-        play_type_id,
-
-        LEAD(play_type_id,1) OVER(
-            PARTITION BY match_id
-            ORDER BY event_order
-        ) AS next_play_1,
-
-        LEAD(play_type_id,2) OVER(
-            PARTITION BY match_id
-            ORDER BY event_order
-        ) AS next_play_2,
-
-        LEAD(play_type_id,3) OVER(
-            PARTITION BY match_id
-            ORDER BY event_order
-        ) AS next_play_3
-
-    FROM {{ ref('int_play_by_play') }}
-
-),
-
-shots AS (
-
-    SELECT
-
-        s.*,
-
-        CASE
-            WHEN p.play_type_id IN (100,533)
-            THEN 1
-            ELSE 0
-        END AS is_dunk,
-
-        CASE
-            WHEN p.next_play_1 IN (107,108)
-            THEN 1
-            ELSE 0
-        END AS assisted_fg,
-
-        CASE
-            WHEN
-                p.next_play_1 IN (160,161,162,163)
-                OR p.next_play_2 IN (160,161,162,163)
-                OR p.next_play_3 IN (160,161,162,163)
-            THEN 1
-            ELSE 0
-        END AS and_one
-
-    FROM {{ ref('fact_shots') }} s
-
-    LEFT JOIN pbp p
-    USING(
-        match_id,
-        quarter,
-        minute,
-        second,
-        player_id,
-        team_id
-    )
+        *,
+        CASE WHEN is_assisted THEN 1 ELSE 0 END AS assisted_fg,
+        CASE WHEN is_and_one THEN 1 ELSE 0 END AS and_one
+    FROM {{ ref('fact_shots') }}
 
 ),
 
@@ -91,11 +35,11 @@ SELECT
     -- GENERAL
     -----------------------------------
 
-    SUM(CASE WHEN zone_id<>14 THEN 1 ELSE 0 END) AS field_goals_attempted,
-    SUM(CASE WHEN zone_id<>14 AND is_made THEN 1 ELSE 0 END) AS field_goals_made,
+    SUM(CASE WHEN shot_value>1 THEN 1 ELSE 0 END) AS field_goals_attempted,
+    SUM(CASE WHEN shot_value>1 AND is_made THEN 1 ELSE 0 END) AS field_goals_made,
 
-    SUM(CASE WHEN zone_id=14 THEN 1 ELSE 0 END) AS free_throws_attempted,
-    SUM(CASE WHEN zone_id=14 AND is_made THEN 1 ELSE 0 END) AS free_throws_made,
+    SUM(CASE WHEN shot_value=1 THEN 1 ELSE 0 END) AS free_throws_attempted,
+    SUM(CASE WHEN shot_value=1 AND is_made THEN 1 ELSE 0 END) AS free_throws_made,
 
     SUM(CASE WHEN shot_value=2 THEN 1 ELSE 0 END) AS two_pointers_attempted,
     SUM(CASE WHEN shot_value=2 AND is_made THEN 1 ELSE 0 END) AS two_pointers_made,
@@ -132,9 +76,9 @@ SELECT
     -- CREATION
     -----------------------------------
 
-    SUM(CASE WHEN is_made THEN assisted_fg ELSE 0 END) AS assisted_field_goals_made,
+    SUM(CASE WHEN shot_value>1 AND is_made THEN assisted_fg ELSE 0 END) AS assisted_field_goals_made,
 
-    SUM(CASE WHEN is_made THEN 1-assisted_fg ELSE 0 END) AS unassisted_field_goals_made,
+    SUM(CASE WHEN shot_value>1 AND is_made THEN 1-assisted_fg ELSE 0 END) AS unassisted_field_goals_made,
 
     SUM(CASE WHEN shot_value=2 AND is_made THEN assisted_fg ELSE 0 END) AS assisted_two_pointers_made,
 

@@ -70,7 +70,9 @@ def ingest_match_task(api_client: ApiAcbClient, match_info: Tuple[int, int]):
     edition_id, match_id = match_info
     filename = f"ed_{edition_id}_m_{match_id}"
     
-    header_path = os.path.join(LANDING_DIR, "match_header", f"{filename}.json")
+    # Misma carpeta en la que save_json_file guarda la cabecera (antes se miraba en
+    # "match_header", que no existe, y se volvía a descargar en cada ejecución).
+    header_path = os.path.join(LANDING_DIR, "apiacb_match_header", f"{filename}.json")
     header_data = None
 
     try:
@@ -135,6 +137,7 @@ def run_pipeline(is_incremental: bool = False, target_editions: list = None):
     
     active_round_ids = set()
     all_match_tasks = set()
+    current_editions = set()
 
     # Fase 1: Descarga e inspección de Rondas de las Competiciones elegidas
     for comp_id in COMPETITIONS:
@@ -144,6 +147,7 @@ def run_pipeline(is_incremental: bool = False, target_editions: list = None):
             
         save_json_file("apiacb_competition", f"comp_{comp_id}", payload)
         curr_edition = payload.get("currentEditionId")
+        current_editions.add(curr_edition)
         all_rounds = extract_round_ids(payload)
         
         if is_incremental:
@@ -157,15 +161,23 @@ def run_pipeline(is_incremental: bool = False, target_editions: list = None):
     LOG.info(f"Analizando {len(active_round_ids)} rondas de competición...")
     for edition_id, round_id in active_round_ids:
         filename = f"ed_{edition_id}_rnd_{round_id}"
-        matchlist_path = os.path.join(LANDING_DIR, "matchlist", f"{filename}.json")
-        
+        matchlist_path = os.path.join(LANDING_DIR, "apiacb_matchlist", f"{filename}.json")
+
+        cached_payload = None
         if os.path.exists(matchlist_path):
             with open(matchlist_path, "r", encoding="utf-8") as f:
-                ml_payload = json.load(f)
+                cached_payload = json.load(f)
+
+        # La caché solo vale para temporadas cerradas: en la temporada en curso una ronda
+        # sigue cambiando (partidos que se juegan, eliminatorias que se alargan).
+        if cached_payload is not None and edition_id not in current_editions:
+            ml_payload = cached_payload
         else:
             ml_payload = api_client.get_matchlist(round_id)
             if not ml_payload:
-                continue
+                if cached_payload is None:
+                    continue
+                ml_payload = cached_payload   # la API ha fallado: seguimos con lo que había
                 
             # Si en la ronda entera no hay partidos jugados aún, evitamos escribir un JSON vacío
             matches = ml_payload.get("matches", [])
@@ -196,4 +208,4 @@ def run_pipeline(is_incremental: bool = False, target_editions: list = None):
 if __name__ == "__main__":
     run_pipeline(is_incremental=True)
     
-    #run_pipeline(is_incremental=False, target_editions=list(range(90,91)))
+    #run_pipeline(is_incremental=False, target_editions=[90, 91])

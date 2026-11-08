@@ -1,0 +1,44 @@
+version: 2
+
+models:
+  - name: dim_clubs
+    columns:
+      - name: club_id
+        tests:
+          - unique
+          - not_null
+
+  - name: dim_teams
+    columns:
+      - name: team_id
+        tests:
+          - unique
+          - not_null
+
+  - name: dim_players
+    columns:
+      - name: player_id
+        tests:
+          - unique
+          - not_null
+
+  - name: fact_play_by_play
+    columns:
+      - name: id
+        tests:
+          - unique
+          - not_null
+
+  - name: fact_possessions
+    columns:
+      - name: id
+        tests:
+          - unique
+          - not_null
+
+  - name: fact_player_games
+    columns:
+      - name: id
+        tests:
+          - unique
+          - not_null

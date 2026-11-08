@@ -37,9 +37,35 @@ from app.schemas.leaderboard import (
 _PER_DIVISORS = {
     # nombre -> (columna divisor, factor en el numerador, factor extra)
     "per_game": ("t.games", 1.0, 1.0),
-    "per_100_poss": ("t.possessions", 100.0, 1.0),
+    # por 100 posesiones de ATAQUE del equipo (con el jugador en pista, en su caso);
+    # `possessions` es ataque + defensa y dejaba el valor a la mitad
+    "per_100_poss": ("t.offensive_possessions", 100.0, 1.0),
     "per_40_min": ("t.seconds", 1.0, 40.0 * 60.0),
 }
+
+
+def _source_table(table: str, column: str, per: str | None) -> str:
+    """
+    Tabla de la que sale el leaderboard. Para per_100_poss, en vez del agregado se suman
+    solo los partidos que tienen posesiones (has_possessions): en temporadas con
+    play-by-play incompleto, dividir el total de la temporada entre las posesiones de solo
+    algunos partidos inflaba el valor (p. ej. 2017-18).
+    """
+    if per != "per_100_poss":
+        return f"main_marts.{table}"
+    if table == "agg_player_totals":
+        fact, keys, games = "fact_player_games", "player_id, team_id", "COUNT(*) FILTER (WHERE seconds > 0)"
+    else:
+        fact, keys, games = "fact_team_games", "team_id", "COUNT(*)"
+    return f"""(
+        SELECT edition_id, competition_id, competition_phase, {keys},
+               {games} AS games,
+               SUM({column}) AS {column},
+               SUM(offensive_possessions) AS offensive_possessions
+        FROM main_marts.{fact}
+        WHERE has_possessions
+        GROUP BY edition_id, competition_id, competition_phase, {keys}
+    )"""
 
 
 def player_leaderboard(
@@ -85,12 +111,12 @@ def player_leaderboard(
             SELECT
                 ROW_NUMBER() OVER (ORDER BY {value_expr} DESC) AS rank,
                 t.player_id,
-                t.team_id, tm.full_name AS team_name, tm.club_id, CAST(NULL AS VARCHAR) AS club_name,
+                t.team_id, tm.full_name AS team_name, tm.club_id, tm.club_name,
                 t.edition_id, e.season_name AS edition_name,
                 t.competition_id, c.competition_name,
                 t.competition_phase,
                 {value_expr} AS value
-            FROM main_marts.agg_player_totals t
+            FROM {_source_table('agg_player_totals', column, per)} t
             {base_join}
             {fb.where_sql()}
             ORDER BY value DESC
@@ -114,10 +140,10 @@ def player_leaderboard(
             SELECT
                 t.player_id,
                 ANY_VALUE(t.team_id) AS team_id, ANY_VALUE(tm.full_name) AS team_name,
-                ANY_VALUE(tm.club_id) AS club_id, CAST(NULL AS VARCHAR) AS club_name,
+                ANY_VALUE(tm.club_id) AS club_id, ANY_VALUE(tm.club_name) AS club_name,
                 SUM(t.games) AS total_games,
                 {agg_expr} AS value
-            FROM main_marts.agg_player_totals t
+            FROM {_source_table('agg_player_totals', column, per)} t
             {base_join}
             {fb.where_sql()}
             GROUP BY t.player_id
@@ -175,12 +201,12 @@ def team_leaderboard(
             f"""
             SELECT
                 ROW_NUMBER() OVER (ORDER BY {value_expr} DESC) AS rank,
-                t.team_id, tm.full_name AS team_name, tm.club_id, CAST(NULL AS VARCHAR) AS club_name,
+                t.team_id, tm.full_name AS team_name, tm.club_id, tm.club_name,
                 t.edition_id, e.season_name AS edition_name,
                 t.competition_id, c.competition_name,
                 t.competition_phase,
                 {value_expr} AS value
-            FROM main_marts.agg_team_totals t
+            FROM {_source_table('agg_team_totals', column, per)} t
             {base_join}
             {fb.where_sql()}
             ORDER BY value DESC
@@ -200,14 +226,18 @@ def team_leaderboard(
     cur.execute(
         f"""
         SELECT * FROM (
+            -- Carrera = por CLUB: team_id es una participación concreta (un club en una
+            -- temporada y competición), así que agrupar por él no sumaba nada. Se muestra
+            -- el equipo (nombre comercial) más reciente del club.
             SELECT
-                t.team_id, ANY_VALUE(tm.full_name) AS team_name,
-                ANY_VALUE(tm.club_id) AS club_id, CAST(NULL AS VARCHAR) AS club_name,
+                tm.club_id, ANY_VALUE(tm.club_name) AS club_name,
+                arg_max(t.team_id, t.edition_id) AS team_id,
+                arg_max(tm.full_name, t.edition_id) AS team_name,
                 {agg_expr} AS value
-            FROM main_marts.agg_team_totals t
+            FROM {_source_table('agg_team_totals', column, per)} t
             {base_join}
             {fb.where_sql()}
-            GROUP BY t.team_id
+            GROUP BY tm.club_id
             HAVING value IS NOT NULL
         )
         ORDER BY value DESC
@@ -277,11 +307,15 @@ def _shooting_leaderboard_from_agg(
 
     cur.execute(
         f"""
-        SELECT * FROM (
+        SELECT x.*, e.season_name AS edition_name, c.competition_name FROM (
             SELECT
                 z.player_id,
                 ANY_VALUE(tm.full_name) AS team_name, ANY_VALUE(z.team_id) AS team_id,
-                ANY_VALUE(z.club_id) AS club_id, CAST(NULL AS VARCHAR) AS club_name,
+                ANY_VALUE(z.club_id) AS club_id, ANY_VALUE(tm.club_name) AS club_name,
+                -- contexto: la edición/competición/fase si todas las filas son de una sola
+                CASE WHEN COUNT(DISTINCT z.edition_id) = 1 THEN ANY_VALUE(z.edition_id) END AS edition_id,
+                CASE WHEN COUNT(DISTINCT z.competition_id) = 1 THEN ANY_VALUE(z.competition_id) END AS competition_id,
+                CASE WHEN COUNT(DISTINCT z.competition_phase) = 1 THEN ANY_VALUE(z.competition_phase) END AS competition_phase,
                 SUM(z.field_goals_made) AS made,
                 SUM(z.field_goals_attempted) AS attempted,
                 {value_col} AS value
@@ -290,7 +324,9 @@ def _shooting_leaderboard_from_agg(
             {fb.where_sql()}
             GROUP BY z.player_id
             HAVING SUM(z.field_goals_attempted) >= ? AND value IS NOT NULL
-        )
+        ) x
+        LEFT JOIN main_marts.dim_editions e ON e.edition_id = x.edition_id
+        LEFT JOIN main_marts.dim_competitions c ON c.competition_id = x.competition_id
         ORDER BY value DESC
         {pagination_sql(page)}
         """,
@@ -332,11 +368,15 @@ def _shooting_leaderboard_from_shots(
 
     cur.execute(
         f"""
-        SELECT * FROM (
+        SELECT x.*, e.season_name AS edition_name, c.competition_name FROM (
             SELECT
                 s.player_id,
                 ANY_VALUE(tm.full_name) AS team_name, ANY_VALUE(s.team_id) AS team_id,
-                ANY_VALUE(s.club_id) AS club_id, CAST(NULL AS VARCHAR) AS club_name,
+                ANY_VALUE(s.club_id) AS club_id, ANY_VALUE(tm.club_name) AS club_name,
+                -- contexto: la edición/competición/fase si todas las filas son de una sola
+                CASE WHEN COUNT(DISTINCT s.edition_id) = 1 THEN ANY_VALUE(s.edition_id) END AS edition_id,
+                CASE WHEN COUNT(DISTINCT s.competition_id) = 1 THEN ANY_VALUE(s.competition_id) END AS competition_id,
+                CASE WHEN COUNT(DISTINCT s.competition_phase) = 1 THEN ANY_VALUE(s.competition_phase) END AS competition_phase,
                 SUM(CASE WHEN s.is_made THEN 1 ELSE 0 END) AS made,
                 COUNT(*) AS attempted,
                 {value_col} AS value
@@ -345,7 +385,9 @@ def _shooting_leaderboard_from_shots(
             {fb.where_sql()}
             GROUP BY s.player_id
             HAVING COUNT(*) >= ? AND value IS NOT NULL
-        )
+        ) x
+        LEFT JOIN main_marts.dim_editions e ON e.edition_id = x.edition_id
+        LEFT JOIN main_marts.dim_competitions c ON c.competition_id = x.competition_id
         ORDER BY value DESC
         {pagination_sql(page)}
         """,

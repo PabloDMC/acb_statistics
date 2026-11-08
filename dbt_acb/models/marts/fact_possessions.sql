@@ -1,32 +1,15 @@
 {{ config(
-    materialized='incremental',
+    materialized='table',
     schema='marts',
     tags=['acb_analytics']
 ) }}
 
+-- Una fila por posesión contada. possession_id es único dentro del partido.
+
 WITH poss AS (
-
-    SELECT
-        match_id,
-        quarter,
-        possession_id,
-        team_id,
-        start_time,
-        end_time,
-        score_h_start,
-        score_h_end,
-        score_a_start,
-        score_a_end,
-        end_reason
+    SELECT *
     FROM {{ ref('int_possessions') }}
-
-    {% if is_incremental() %}
-    WHERE match_id NOT IN (
-        SELECT DISTINCT match_id
-        FROM {{ this }}
-    )
-    {% endif %}
-
+    WHERE is_counted
 ),
 
 m AS (
@@ -34,7 +17,7 @@ m AS (
         match_id,
         edition_id,
         competition_id,
-        round_type as competition_phase,
+        round_type AS competition_phase,
         home_team_id,
         home_team_club_id,
         away_team_id,
@@ -50,83 +33,47 @@ joined AS (
         m.edition_id,
         m.competition_id,
         m.competition_phase,
-        m.home_team_id,
-        m.home_team_club_id,
-        m.away_team_id,
-        m.away_team_club_id,
-        m.home_team_full_name,
-        m.away_team_full_name,
-
-        CASE WHEN p.team_id = m.home_team_id THEN m.home_team_club_id
-             ELSE m.away_team_club_id
-        END AS club_id,
-
-        CASE WHEN p.team_id = m.home_team_id THEN m.home_team_full_name
-             ELSE m.away_team_full_name
-        END AS team_full_name,
-
-        pt.play_name,
-
-        l.stint_id,
-        l.player_ids
-
+        (p.team_id = m.home_team_id) AS is_home,
+        CASE WHEN p.team_id = m.home_team_id THEN m.home_team_club_id ELSE m.away_team_club_id END AS club_id,
+        CASE WHEN p.team_id = m.home_team_id THEN m.away_team_club_id ELSE m.home_team_club_id END AS opponent_club_id,
+        CASE WHEN p.team_id = m.home_team_id THEN m.home_team_full_name ELSE m.away_team_full_name END AS team_full_name,
+        -- la posesión empieza donde acabó la anterior del cuarto (o con el cuarto)
+        coalesce(
+            lag(p.end_time) OVER (PARTITION BY p.match_id, p.quarter ORDER BY p.possession_seq),
+            CASE WHEN p.quarter <= 4 THEN 600 ELSE 300 END
+        ) AS possession_start_time
     FROM poss p
     LEFT JOIN m USING (match_id)
-    LEFT JOIN {{ ref('play_types') }} pt 
-    ON pt.play_type_id = p.end_reason
-    LEFT JOIN {{ ref('int_lineups') }} l
-    ON p.match_id = l.match_id
-    AND p.team_id  = l.team_id
-    AND p.quarter  = l.quarter
-    AND p.start_time <= l.start_time
-    AND p.start_time > l.end_time
-),
-
-scoring AS (
-    SELECT
-        *,
-        CASE WHEN team_id = home_team_id THEN score_h_start ELSE score_a_start END AS score_team_start,
-        CASE WHEN team_id = home_team_id THEN score_h_end   ELSE score_a_end   END AS score_team_end,
-        CASE WHEN team_id = home_team_id THEN score_a_start ELSE score_h_start END AS score_opp_start,
-        CASE WHEN team_id = home_team_id THEN score_a_end   ELSE score_h_end   END AS score_opp_end,
-
-        (
-            (CASE WHEN team_id = home_team_id THEN score_h_end ELSE score_a_end END)
-            -
-            (CASE WHEN team_id = home_team_id THEN score_h_start ELSE score_a_start END)
-        )
-        -
-        (
-            (CASE WHEN team_id = home_team_id THEN score_a_end ELSE score_h_end END)
-            -
-            (CASE WHEN team_id = home_team_id THEN score_a_start ELSE score_h_start END)
-        ) AS plus_minus,
-
-        start_time - end_time AS duration_seconds
-    FROM joined
 )
 
 SELECT
-    edition_id,
-    competition_id,
-    competition_phase,
-    match_id,
-    team_id,
-    club_id,
-    team_full_name,
-    quarter,
-    possession_id,
-    start_time,
-    end_time,
-    duration_seconds,
-    score_team_start,
-    score_team_end,
-    score_opp_start,
-    score_opp_end,
-    plus_minus,
-    stint_id,
-    player_ids,
-    end_reason,
-    play_name as end_reason_desc
-FROM scoring
-where start_time > end_time
+    j.id,
+    j.edition_id,
+    j.competition_id,
+    j.competition_phase,
+    j.match_id,
+    j.team_id,
+    j.club_id,
+    j.team_full_name,
+    j.opponent_team_id,
+    j.opponent_club_id,
+    j.is_home,
+    j.quarter,
+    j.possession_seq AS possession_id,
+    j.possession_start_time AS start_time,
+    j.end_time,
+    greatest(j.possession_start_time - j.end_time, 0) AS duration_seconds,
+    j.points,
+    j.opponent_points,
+    CASE WHEN j.is_home THEN j.score_home_end ELSE j.score_away_end END AS score_team_end,
+    CASE WHEN j.is_home THEN j.score_away_end ELSE j.score_home_end END AS score_opp_end,
+    j.end_play_type_id,
+    j.end_reason,
+    j.is_clutch,
+    j.stint_seq AS stint_id,
+    CASE WHEN j.is_home THEN s.home_player_ids ELSE s.away_player_ids END AS player_ids,
+    CASE WHEN j.is_home THEN s.away_player_ids ELSE s.home_player_ids END AS opponent_player_ids
+FROM joined j
+LEFT JOIN {{ ref('int_stints') }} s
+    ON s.match_id = j.match_id
+   AND s.stint_seq = j.stint_seq

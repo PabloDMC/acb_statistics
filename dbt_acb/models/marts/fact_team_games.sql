@@ -88,41 +88,43 @@ teams AS (
 
 ),
 
+-- Totales oficiales del equipo (bloque `total` del boxscore): incluyen los rebotes y pérdidas
+-- "de equipo", que no pertenecen a ningún jugador y se perdían al sumar jugadores.
 boxscore AS (
 
-    SELECT
+    SELECT *
+    FROM {{ ref('int_team_boxscore') }}
 
+),
+
+-- los segundos jugados solo existen por jugador
+playing_time AS (
+
+    SELECT
         match_id,
         team_id,
-        SUM(CAST(SPLIT_PART(play_time, ':', 1) AS BIGINT) * 60 + CAST(SPLIT_PART(play_time, ':', 2) AS BIGINT)) AS seconds,
-        SUM(free_throws_made)           AS free_throws_made,
-        SUM(free_throws_attempted)      AS free_throws_attempted,
-        SUM(two_pointers_made)          AS two_pointers_made,
-        SUM(two_pointers_attempted)     AS two_pointers_attempted,
-        SUM(three_pointers_made)        AS three_pointers_made,
-        SUM(three_pointers_attempted)   AS three_pointers_attempted,
-        SUM(dunks)                      AS dunks,
-        SUM(assists)                    AS assists,
-        SUM(off_rebounds)               AS off_rebounds,
-        SUM(def_rebounds)               AS def_rebounds,
-        SUM(total_rebounds)             AS total_rebounds,
-        SUM(steals)                     AS steals,
-        SUM(turnovers)                  AS turnovers,
-        SUM(blocks)                     AS blocks,
-        SUM(received_blocks)            AS received_blocks,
-        SUM(personal_fouls)             AS personal_fouls,
-        SUM(fouls_drawn)                AS fouls_drawn,
-        SUM(rating)                     AS rating
-
+        SUM(CAST(SPLIT_PART(play_time, ':', 1) AS BIGINT) * 60 + CAST(SPLIT_PART(play_time, ':', 2) AS BIGINT)) AS seconds
     FROM {{ ref('int_boxscore') }}
     GROUP BY match_id, team_id
+
+),
+
+names AS (
+
+    SELECT team_id, full_name AS team_name, club_name
+    FROM {{ ref('dim_teams') }}
 
 )
 
 SELECT
 
     t.*,
-    bs.seconds,
+    n.team_name,
+    n.club_name,
+    opp.team_name AS opponent_team_name,
+    (t.points > t.opponent_points) AS is_win,
+
+    pt.seconds,
     bs.free_throws_made,
     bs.free_throws_attempted,
     bs.free_throws_made / NULLIF(bs.free_throws_attempted,0) AS free_throws_pct,
@@ -148,7 +150,12 @@ SELECT
     bs.received_blocks,
     bs.personal_fouls,
     bs.fouls_drawn,
+
+    bs.team_off_rebounds,
+    bs.team_def_rebounds,
+    bs.team_turnovers,
     bs.rating,
+    (ls.offensive_possessions IS NOT NULL) AS has_possessions,
     ls.offensive_possessions,
     ls.defensive_possessions,
     ls.possessions,
@@ -159,13 +166,27 @@ SELECT
     100.0 * t.opponent_points / NULLIF(ls.defensive_possessions,0) AS net_rating
 
 FROM teams t
+
 LEFT JOIN boxscore bs
 USING (
     match_id,
     team_id
 )
+
+LEFT JOIN playing_time pt
+USING (
+    match_id,
+    team_id
+)
+
 LEFT JOIN lineup_stats ls
 USING(
     match_id,
     team_id
 )
+
+LEFT JOIN names n
+    ON n.team_id = t.team_id
+
+LEFT JOIN names opp
+    ON opp.team_id = t.opponent_team_id

@@ -63,8 +63,18 @@ def get_player_totals(player_id: int, cur: DbDep, filters: FiltersDep):
 
 
 @router.get("/{player_id}/games", response_model=PaginatedResponse[PlayerGameLogEntry])
-def get_player_games(player_id: int, cur: DbDep, filters: FiltersDep, page: PageDep):
-    items, total = player_service.get_game_log(cur, player_id, filters, page)
+def get_player_games(
+    player_id: int,
+    cur: DbDep,
+    filters: FiltersDep,
+    page: PageDep,
+    include_dnp: bool = Query(
+        default=False,
+        description="Incluir los partidos en los que estuvo convocado pero no jugó (0:00). "
+        "Por defecto no, igual que los partidos jugados de los totales.",
+    ),
+):
+    items, total = player_service.get_game_log(cur, player_id, filters, page, include_dnp)
     return PaginatedResponse(
         items=items, total=total, limit=page.limit, offset=page.offset,
         has_more=page.offset + page.limit < total,
