@@ -57,7 +57,7 @@ play_type_id,play_name,category,sub_category
 116,Quarter End,System,Admin
 122,Game Start,System,Admin
 123,Game End,System,Admin
-600,Game Start,System,Admin
+600,Clock Minute Mark,System,Clock
 178,Jumpball Won,System,Jumpball
 179,Jumpball Lost,System,Jumpball
 405,IR - Review Started,IR,Review

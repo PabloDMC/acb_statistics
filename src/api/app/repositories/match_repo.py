@@ -2,14 +2,16 @@
 Repositorio de Matches — ajustado al esquema real.
 
 Huecos reales:
-- dim_matches NO tiene competition_phase ni club_id: solo se puede filtrar
-  por edition_id/competition_id a este nivel.
+- dim_matches no tiene competition_phase ni club_id: la fase sale de fact_team_games
+  y el club de dim_teams (local o visitante).
 - No hay un campo "venue" único: hay home_arena/away_arena. Se usa
   home_arena como venue (el partido se juega en el pabellón del local).
 - No hay columna "date": se usa match_start_time (timestamp completo).
 - fact_shots usa is_made/shot_value/shot_zone_basic, no made/value/zone/
   shot_type.
 - fact_lineups no trae nombres de jugador: se resuelven en el servicio.
+- En fact_lineups, start_time/end_time son segundos RESTANTES del cuarto
+  (cuenta atrás), así que el orden cronológico es start_time descendente.
 """
 
 from __future__ import annotations
@@ -59,14 +61,19 @@ def require_match(cur: duckdb.DuckDBPyConnection, match_id: int) -> dict:
 def list_matches(
     cur: duckdb.DuckDBPyConnection, filters: CompetitionFilters, page: PageParams
 ) -> tuple[list[dict], int]:
-    # dim_matches no tiene competition_phase ni club_id/team_id genérico:
-    # solo soportamos edition_id/competition_id a este nivel.
     fb = SQLFilterBuilder(table_alias="m")
     fb.add("edition_id", filters.edition_id)
     fb.add("competition_id", filters.competition_id)
     if filters.competition_phase is not None:
         fb.clauses.append("ph.competition_phase = ?")
         fb.params.append(filters.competition_phase)
+    # team_id / club_id: partidos en los que el equipo (o un equipo del club) juega de local o visitante
+    if filters.team_id is not None:
+        fb.clauses.append("(m.home_team_id = ? OR m.away_team_id = ?)")
+        fb.params.extend([filters.team_id, filters.team_id])
+    if filters.club_id is not None:
+        fb.clauses.append("(ht.club_id = ? OR at_.club_id = ?)")
+        fb.params.extend([filters.club_id, filters.club_id])
     where_sql = fb.where_sql()
 
     sort_col, direction = resolve_sort(page.sort, {"date", "id"}, default="date")
@@ -78,13 +85,7 @@ def list_matches(
     )
     items = cursor_to_dicts(cur)
 
-    cur.execute(
-        f"""SELECT COUNT(*) FROM main_marts.dim_matches m
-        LEFT JOIN (SELECT match_id, ANY_VALUE(competition_phase) AS competition_phase
-                   FROM main_marts.fact_team_games GROUP BY match_id) ph ON ph.match_id = m.match_id
-        {where_sql}""",
-        fb.params,
-    )
+    cur.execute(f"SELECT COUNT(*) FROM ({_MATCH_SELECT} {where_sql})", fb.params)
     total = scalar(cur) or 0
     return items, total
 
@@ -140,7 +141,7 @@ def get_lineup_stints(cur: duckdb.DuckDBPyConnection, match_id: int) -> list[dic
             l.defensive_possessions
         FROM main_marts.fact_lineups l
         WHERE l.match_id = ?
-        ORDER BY l.quarter, l.start_time
+        ORDER BY l.quarter, l.start_time DESC, l.stint_id, l.is_home DESC
         """,
         [match_id],
     )

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from enum import Enum
+from typing import Literal
+
 from pydantic import BaseModel
 
 from app.schemas.common import ClubTeamRef, CompetitionContext, NamedRef
@@ -113,12 +116,23 @@ PLAYER_CAREER_RATE_FORMULAS: dict[str, str] = {
         "(100.0 * SUM(t.team_points) / NULLIF(SUM(t.offensive_possessions), 0)) - "
         "(100.0 * SUM(t.opp_points) / NULLIF(SUM(t.defensive_possessions), 0))"
     ),
-    # Aproximaciones: media ponderada por posesiones jugadas. Un on/off "de
-    # carrera" exacto requeriría reconstruir desde fact_lineups agregado por
-    # jugador, mucho más caro; esto es razonable para ordenar un ranking.
-    "onoff_offensive_rating": "SUM(t.onoff_offensive_rating * t.possessions) / NULLIF(SUM(t.possessions), 0)",
-    "onoff_defensive_rating": "SUM(t.onoff_defensive_rating * t.possessions) / NULLIF(SUM(t.possessions), 0)",
-    "onoff_net_rating": "SUM(t.onoff_net_rating * t.possessions) / NULLIF(SUM(t.possessions), 0)",
+    # On/off exacto: rating con el jugador en pista menos rating con él en el
+    # banquillo, sumando puntos y posesiones de todas las filas (agg_player_totals
+    # expone las columnas off_* precisamente para esto).
+    "onoff_offensive_rating": (
+        "(100.0 * SUM(t.team_points) / NULLIF(SUM(t.offensive_possessions), 0)) - "
+        "(100.0 * SUM(t.off_team_points) / NULLIF(SUM(t.off_offensive_possessions), 0))"
+    ),
+    "onoff_defensive_rating": (
+        "(100.0 * SUM(t.opp_points) / NULLIF(SUM(t.defensive_possessions), 0)) - "
+        "(100.0 * SUM(t.off_opp_points) / NULLIF(SUM(t.off_defensive_possessions), 0))"
+    ),
+    "onoff_net_rating": (
+        "((100.0 * SUM(t.team_points) / NULLIF(SUM(t.offensive_possessions), 0)) - "
+        "(100.0 * SUM(t.opp_points) / NULLIF(SUM(t.defensive_possessions), 0))) - "
+        "((100.0 * SUM(t.off_team_points) / NULLIF(SUM(t.off_offensive_possessions), 0)) - "
+        "(100.0 * SUM(t.off_opp_points) / NULLIF(SUM(t.off_defensive_possessions), 0)))"
+    ),
 }
 TEAM_CAREER_RATE_FORMULAS: dict[str, str] = {
     "field_goals_pct": "SUM(t.field_goals_made) / NULLIF(SUM(t.field_goals_attempted), 0)",
@@ -133,11 +147,15 @@ TEAM_CAREER_RATE_FORMULAS: dict[str, str] = {
         "SUM(t.points) / NULLIF(2.0 * (SUM(t.field_goals_attempted) "
         "+ 0.44 * SUM(t.free_throws_attempted)), 0)"
     ),
-    "offensive_rating": "100.0 * SUM(t.points) / NULLIF(SUM(t.possessions), 0)",
-    "defensive_rating": "100.0 * SUM(t.opponent_points) / NULLIF(SUM(t.possessions), 0)",
+    # `possessions` es ataque + defensa: el rating ofensivo se divide entre las
+    # posesiones de ataque y el defensivo entre las de defensa (antes ambos se
+    # dividían entre el total y salían a la mitad).
+    # possession_points: solo los puntos de partidos con posesiones (ver agg_team_totals).
+    "offensive_rating": "100.0 * SUM(t.possession_points) / NULLIF(SUM(t.offensive_possessions), 0)",
+    "defensive_rating": "100.0 * SUM(t.possession_opponent_points) / NULLIF(SUM(t.defensive_possessions), 0)",
     "net_rating": (
-        "(100.0 * SUM(t.points) / NULLIF(SUM(t.possessions), 0)) - "
-        "(100.0 * SUM(t.opponent_points) / NULLIF(SUM(t.possessions), 0))"
+        "(100.0 * SUM(t.possession_points) / NULLIF(SUM(t.offensive_possessions), 0)) - "
+        "(100.0 * SUM(t.possession_opponent_points) / NULLIF(SUM(t.defensive_possessions), 0))"
     ),
 }
 
@@ -145,6 +163,15 @@ TEAM_CAREER_RATE_FORMULAS: dict[str, str] = {
 # fact_shots agregado por jugador, o sobre agg_player_shooting_zones cuando
 # no hace falta filtrar por clutch (ver leaderboard_repo.shooting_leaderboard).
 SHOOTING_LEADERBOARD_METRICS: set[str] = {"made", "attempted", "pct", "frequency"}
+
+
+# Tipos para los parámetros de query: FastAPI valida el valor y lo documenta en
+# OpenAPI sin validación manual en el service.
+PlayerMetric = Enum("PlayerMetric", {k: k for k in PLAYER_LEADERBOARD_METRICS}, type=str)
+TeamMetric = Enum("TeamMetric", {k: k for k in TEAM_LEADERBOARD_METRICS}, type=str)
+ShootingMetric = Enum("ShootingMetric", {k: k for k in sorted(SHOOTING_LEADERBOARD_METRICS)}, type=str)
+LeaderboardScope = Literal["season", "career"]
+LeaderboardPer = Literal["total", "per_game", "per_100_poss", "per_40_min"]
 
 
 class PlayerLeaderboardEntry(BaseModel):
@@ -166,6 +193,8 @@ class ShootingLeaderboardEntry(BaseModel):
     rank: int
     player: NamedRef
     club_team: ClubTeamRef
+    # edición/competición/fase que cubre la entrada; edition = "Carrera" si suma varias temporadas
+    context: CompetitionContext
     zone: str | None = None  # None = todas las zonas combinadas
     clutch_only: bool
     made: int

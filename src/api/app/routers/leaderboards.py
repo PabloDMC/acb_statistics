@@ -10,12 +10,16 @@ from app.schemas.common import CompetitionFilters, PageParams
 from app.schemas.leaderboard import (
     PLAYER_COUNTABLE_METRICS,
     PLAYER_LEADERBOARD_METRICS,
-    SHOOTING_LEADERBOARD_METRICS,
     TEAM_COUNTABLE_METRICS,
     TEAM_LEADERBOARD_METRICS,
+    LeaderboardPer,
+    LeaderboardScope,
     PlayerLeaderboardEntry,
+    PlayerMetric,
     ShootingLeaderboardEntry,
+    ShootingMetric,
     TeamLeaderboardEntry,
+    TeamMetric,
 )
 from app.services import leaderboard_service
 
@@ -44,18 +48,18 @@ def get_player_leaderboard(
     cur: DbDep,
     filters: FiltersDep,
     page: PageDep,
-    metric: str = Query(..., description=f"Una de: {sorted(PLAYER_LEADERBOARD_METRICS)}"),
+    metric: PlayerMetric = Query(..., description="Métrica por la que ordenar"),
     min_games: int = Query(default=1, ge=0, description="Filtra jugadores con pocos partidos jugados"),
-    scope: str = Query(
+    scope: LeaderboardScope = Query(
         default="season",
         description="'season': mejores marcas por temporada/fase (si no filtras edition_id, es histórico). 'career': agregado de toda la carrera dentro de los filtros dados.",
     ),
-    per: str = Query(
+    per: LeaderboardPer = Query(
         default="total",
         description="'total' (por defecto), 'per_game', 'per_100_poss' o 'per_40_min'. Solo aplica a métricas contables (points, assists, rebounds, steals, blocks, rating).",
     ),
 ):
-    return leaderboard_service.player_leaderboard(cur, metric, filters, page, min_games, scope, per)
+    return leaderboard_service.player_leaderboard(cur, metric.value, filters, page, min_games, scope, per)
 
 
 @router.get("/teams", response_model=list[TeamLeaderboardEntry])
@@ -63,11 +67,11 @@ def get_team_leaderboard(
     cur: DbDep,
     filters: FiltersDep,
     page: PageDep,
-    metric: str = Query(..., description=f"Una de: {sorted(TEAM_LEADERBOARD_METRICS)}"),
-    scope: str = Query(default="season", description="'season' o 'career' (agregado de toda la trayectoria del equipo dentro de los filtros dados)."),
-    per: str = Query(default="total", description="'total', 'per_game' o 'per_100_poss'. Solo aplica a 'points'."),
+    metric: TeamMetric = Query(..., description="Métrica por la que ordenar"),
+    scope: LeaderboardScope = Query(default="season", description="'season' o 'career' (agregado por club de toda su trayectoria dentro de los filtros dados)."),
+    per: LeaderboardPer = Query(default="total", description="'total', 'per_game', 'per_100_poss' o 'per_40_min'. Solo aplica a métricas contables."),
 ):
-    return leaderboard_service.team_leaderboard(cur, metric, filters, page, scope, per)
+    return leaderboard_service.team_leaderboard(cur, metric.value, filters, page, scope, per)
 
 
 @router.get("/shooting", response_model=list[ShootingLeaderboardEntry])
@@ -75,7 +79,7 @@ def get_shooting_leaderboard(
     cur: DbDep,
     filters: FiltersDep,
     page: PageDep,
-    metric: str = Query(..., description=f"Una de: {sorted(SHOOTING_LEADERBOARD_METRICS)}"),
+    metric: ShootingMetric = Query(..., description="made, attempted, pct o frequency"),
     zone: str | None = Query(
         default=None,
         description="Zona exacta (ver GET /leaderboards/shooting/zones). Si se omite, combina todas las zonas.",
@@ -92,7 +96,7 @@ def get_shooting_leaderboard(
     fact_shots.is_clutch, así que esto es lo que se puede ofrecer de forma
     fiable sin tocar dbt).
     """
-    return leaderboard_service.shooting_leaderboard(cur, metric, zone, clutch_only, filters, min_attempts, page)
+    return leaderboard_service.shooting_leaderboard(cur, metric.value, zone, clutch_only, filters, min_attempts, page)
 
 
 @router.get("/shooting/zones")

@@ -45,9 +45,16 @@ class SQLFilterBuilder:
 # Columnas por las que cada endpoint permite ordenar. Es una allow-list a
 # propósito: `sort` viene de query params del usuario y jamás debe
 # interpolarse directamente en SQL sin validar contra esta lista.
-def resolve_sort(sort: str | None, allowed_columns: set[str], default: str) -> tuple[str, str]:
+def resolve_sort(
+    sort: str | None,
+    allowed_columns: set[str],
+    default: str,
+    default_direction: str = "DESC",
+) -> tuple[str, str]:
+    """`default_direction` aplica cuando no hay `sort` o no es válido: DESC para fechas y
+    métricas, ASC para nombres (antes los listados por nombre salían de la Z a la A)."""
     if not sort:
-        return default, "DESC"
+        return default, default_direction
 
     direction = "ASC"
     column = sort
@@ -57,7 +64,7 @@ def resolve_sort(sort: str | None, allowed_columns: set[str], default: str) -> t
 
     if column not in allowed_columns:
         column = default
-        direction = "DESC"
+        direction = default_direction
 
     return column, direction
 

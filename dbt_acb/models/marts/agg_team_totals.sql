@@ -10,7 +10,13 @@ with agg as (
 		competition_id,
 		competition_phase,
 		team_id,
+		any_value(team_name) as team_name,
+		any_value(club_id) as club_id,
+		any_value(club_name) as club_name,
 		count(1) as games,
+		count(*) filter (where has_possessions) as games_with_possessions,
+		sum(case when points > opponent_points then 1 else 0 end) as wins,
+		sum(case when points < opponent_points then 1 else 0 end) as losses,
 		sum(seconds) as seconds,
 		sum(points) as points,
 		sum(opponent_points) as opponent_points,
@@ -36,7 +42,11 @@ with agg as (
 		sum(rating) as rating,
         sum(offensive_possessions) as offensive_possessions,
         sum(defensive_possessions) as defensive_possessions,
-        sum(possessions) as possessions
+        sum(possessions) as possessions,
+        -- puntos de los partidos que tienen posesiones: en temporadas con play-by-play incompleto
+        -- dividir todos los puntos entre las posesiones de solo algunos partidos inflaba los ratings
+        sum(points) filter (where has_possessions) as possession_points,
+        sum(opponent_points) filter (where has_possessions) as possession_opponent_points
 	from {{ ref('fact_team_games') }}
 	group by edition_id, competition_id, competition_phase, team_id
 )
@@ -45,7 +55,13 @@ select
     competition_id,
     competition_phase,
     team_id,
+    team_name,
+    club_id,
+    club_name,
 	games,
+	games_with_possessions,
+	wins,
+	losses,
     seconds,
 	points,
 	opponent_points,
@@ -78,7 +94,9 @@ select
 	offensive_possessions,
 	defensive_possessions,
     possessions,
-    100.0 * points / NULLIF(offensive_possessions, 0) as offensive_rating,
-    100.0 * opponent_points / NULLIF(defensive_possessions, 0) as defensive_rating,
-    100.0 * (points / NULLIF(offensive_possessions, 0) - opponent_points / NULLIF(defensive_possessions, 0)) as net_rating
+    possession_points,
+    possession_opponent_points,
+    100.0 * possession_points / NULLIF(offensive_possessions, 0) as offensive_rating,
+    100.0 * possession_opponent_points / NULLIF(defensive_possessions, 0) as defensive_rating,
+    100.0 * (possession_points / NULLIF(offensive_possessions, 0) - possession_opponent_points / NULLIF(defensive_possessions, 0)) as net_rating
 from agg

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import duckdb
 
+from app.core.exceptions import ResourceNotFoundError
 from app.repositories import common_repo, team_repo
 from app.schemas.common import CompetitionFilters, PageParams
 from app.schemas.game_highs import StatHigh, TeamGameHighs
@@ -111,6 +112,9 @@ def get_game_highs(
 ) -> TeamGameHighs:
     team_repo.require_basic_info(cur, team_id)
     row = team_repo.get_game_highs(cur, team_id, filters)
+    # sin partidos en esos filtros: 404 como el perfil, no un 200 con todo a null
+    if not row or all(v is None for k, v in row.items() if k.endswith("_value")):
+        raise ResourceNotFoundError("team_game_highs_for_filters", {"team_id": team_id, **filters.model_dump()})
     return TeamGameHighs(**{
         name: StatHigh(value=row.get(f"{name}_value"), match_id=row.get(f"{name}_match_id"))
         for name in TeamGameHighs.model_fields

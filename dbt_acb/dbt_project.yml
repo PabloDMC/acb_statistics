@@ -30,6 +30,7 @@ seeds:
     +schema: reference 
     court_zones: {}
     play_types: {}
+    club_names: {}
 
 vars:
   landing_data_dir: "../data/landing"

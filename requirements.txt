@@ -1,5 +1,14 @@
+# API
 fastapi>=0.115
 uvicorn[standard]>=0.30
 duckdb>=1.0
 pydantic>=2.7
 pydantic-settings>=2.3
+
+# Ingesta (src/ingestion)
+requests>=2.31
+python-dotenv>=1.0
+
+# Transformación (dbt_acb): dbt-duckdb trae dbt-core; pandas lo usan los modelos Python
+dbt-duckdb>=1.8
+pandas>=2.0

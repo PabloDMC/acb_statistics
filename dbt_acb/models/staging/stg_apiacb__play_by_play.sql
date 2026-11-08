@@ -17,13 +17,17 @@ flattened AS (
     SELECT
         edition_id,
         match_id,
-        unnest(plays) AS p
+        unnest(plays) AS p,
+        -- posición del evento en el array original: `order` se repite dentro de un partido,
+        -- así que es el único desempate fiable para reconstruir la secuencia real
+        generate_subscripts(plays, 1) AS play_idx
     FROM source
 )
 
 SELECT
     edition_id,
     match_id,
+    play_idx,
     try_cast(p."order" AS INT) AS play_order,
     try_cast(p.playerLicenseId AS INT) AS player_license_id,
     try_cast(p.licenseType AS VARCHAR) AS license_type,

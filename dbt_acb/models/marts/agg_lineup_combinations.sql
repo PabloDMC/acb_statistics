@@ -10,6 +10,9 @@ WITH lineups AS (
 
     FROM {{ ref('fact_lineups') }}
 
+    -- tramos con el quinteto mal reconstruido (faltan cambios en el feed) no dan combinaciones fiables
+    WHERE len(player_ids) = 5
+
 ),
 
 --========================

@@ -4,24 +4,30 @@
     tags=['acb_analytics']
 ) }}
 
+-- Un team_id es la participación de un club en UNA competición de UNA temporada: no se repite
+-- entre competiciones ni entre temporadas.
+
 SELECT
 
-    team_id,
-    club_id,
+    t.team_id,
+    t.club_id,
+    c.club_name,
 
-    edition_id,
-    competition_id,
+    t.edition_id,
+    t.competition_id,
 
-    full_name,
-    short_name,
-    abbr,
+    t.full_name,
+    t.short_name,
+    t.abbr,
 
-    logo,
-    secondary_logo,
+    t.logo,
+    t.secondary_logo,
 
-    primary_color,
-    text_color,
+    t.primary_color,
+    t.text_color,
 
-    cat_insert_date
+    t.cat_insert_date
 
-FROM {{ ref('int_teams') }}
+FROM {{ ref('int_teams') }} t
+LEFT JOIN {{ ref('dim_clubs') }} c
+    USING (club_id)

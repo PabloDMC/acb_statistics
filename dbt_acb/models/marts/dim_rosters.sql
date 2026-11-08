@@ -12,6 +12,10 @@ SELECT
     team_id,
     club_id,
     player_id,
+    coalesce(
+        nullif(player_nickname, ''),
+        player_first_name || ' ' || player_last_name
+    ) AS player_name,
     player_first_name,
     player_last_name,
     player_first_initial_and_last_name,

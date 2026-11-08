@@ -11,12 +11,26 @@ PROJECT_ROOT = SRC_DIR.parent
 # Buscamos el archivo .env en la raíz del proyecto y lo cargamos en memoria
 load_dotenv(dotenv_path=PROJECT_ROOT / ".env")
 
-# Si no se define en el .env, por defecto creará la carpeta 'data' en la raíz
-DATA_ROOT = Path(os.getenv("DATA_BASE_DIR", PROJECT_ROOT / "data"))
-DATABASE_NAME = Path(os.getenv("DATA_BASE_NAME", "acb_analytics.duckdb"))
+def _resolve(value, default: Path) -> Path:
+    """Ruta del .env (relativa a la raíz del proyecto si no es absoluta) o el valor por defecto."""
+    if not value:
+        return default
+    path = Path(value)
+    return path if path.is_absolute() else PROJECT_ROOT / path
 
-LANDING_DIR = DATA_ROOT / "landing"
-DATABASE_PATH = DATA_ROOT / "database" / DATABASE_NAME
+
+DATA_ROOT = PROJECT_ROOT / "data"
+
+# DATA_BASE_DIR es la carpeta de la BASE DE DATOS, no la raíz de datos. Antes se usaba como
+# raíz y, con DATA_BASE_DIR="./data/database", el landing acababa en data/database/landing:
+# la ingesta no encontraba nada de lo ya descargado y lo bajaba todo otra vez.
+DATABASE_DIR = _resolve(os.getenv("DATA_BASE_DIR"), DATA_ROOT / "database")
+DATABASE_NAME = Path(os.getenv("DATA_BASE_NAME", "acb_analytics.duckdb"))
+DATABASE_PATH = DATABASE_DIR / DATABASE_NAME
+
+# El landing es el mismo que lee dbt (var landing_data_dir = ../data/landing). Se puede mover
+# con LANDING_DIR en el .env, cambiando también esa variable de dbt.
+LANDING_DIR = _resolve(os.getenv("LANDING_DIR"), DATA_ROOT / "landing")
 
 # ==============================================================================
 # 2. CONFIGURACIÓN DE LA API ACB

@@ -37,7 +37,9 @@ class ShotEvent(BaseModel):
 class LineupStint(BaseModel):
     team: NamedRef
     quarter: int | None = None
-    start_time: int | None = None  # segundos de juego transcurridos, no reloj de pared
+    # Segundos RESTANTES del cuarto al empezar y al acabar el tramo (reloj de
+    # partido, cuenta atrás): start_time > end_time.
+    start_time: int | None = None
     end_time: int | None = None
     players: list[NamedRef]
     team_points: int | None = None

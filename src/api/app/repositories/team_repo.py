@@ -4,12 +4,10 @@ Repositorio de Teams — ajustado al esquema real.
 Huecos reales que afectan aquí:
 - dim_teams es POR EDICIÓN (team_id + edition_id): para "info básica" de un
   team_id suelto usamos la fila más reciente, igual que con jugadores.
-- agg_team_totals NO tiene club_id ni wins/losses: los derivamos con un
-  join a dim_teams (para club_id) y una agregación aparte sobre
-  fact_team_games (para wins/losses), ya que a nivel de temporada agregada
-  no vienen materializados.
-- No hay nombre de club en ningún sitio (ver player_repo.py): club.name
-  se deja en NULL por ahora.
+- club_id y club_name salen de dim_teams; wins/losses vienen ya en
+  agg_team_totals, por fase.
+- En las respuestas de equipo, `possessions` son las posesiones de ATAQUE
+  del equipo (las tablas guardan además ataque + defensa en `possessions`).
 - agg_lineup_combinations no trae nombres de jugador ni un id de
   combinación: el id se sintetiza en el servicio a partir de player_ids, y
   los nombres se resuelven con common_repo.player_names_batch.
@@ -28,7 +26,7 @@ from app.schemas.common import CompetitionFilters, PageParams
 def get_basic_info(cur: duckdb.DuckDBPyConnection, team_id: int) -> dict | None:
     cur.execute(
         """
-        SELECT team_id AS id, full_name AS name, club_id
+        SELECT team_id AS id, full_name AS name, club_id, club_name
         FROM (
             SELECT *, ROW_NUMBER() OVER (
                 PARTITION BY team_id ORDER BY edition_id DESC
@@ -66,16 +64,16 @@ def list_teams(
         fb.params.append(f"%{name_query}%")
     where_sql = fb.where_sql()
 
-    sort_col, direction = resolve_sort(page.sort, {"name", "id"}, default="name")
+    sort_col, direction = resolve_sort(page.sort, {"name", "id"}, default="name", default_direction="ASC")
     # Importante: estas columnas se refieren al SELECT exterior (que ya
     # renombró full_name -> name, team_id -> id), no a dim_teams directamente.
-    sort_col_sql = {"name": "name", "id": "id"}[sort_col]
+    sort_col_sql = {"name": "lower(strip_accents(name))", "id": "id"}[sort_col]
 
     cur.execute(
         f"""
         SELECT * FROM (
             SELECT
-                tm.team_id AS id, tm.full_name AS name, tm.club_id,
+                tm.team_id AS id, tm.full_name AS name, tm.club_id, tm.club_name,
                 ROW_NUMBER() OVER (PARTITION BY tm.team_id ORDER BY tm.edition_id DESC) AS rn
             FROM main_marts.dim_teams tm
             {where_sql}
@@ -113,11 +111,12 @@ def get_totals(
             t.competition_id, c.competition_name,
             t.competition_phase,
             t.team_id, tm.full_name AS team_name,
-            tm.club_id, CAST(NULL AS VARCHAR) AS club_name,
+            tm.club_id, tm.club_name,
 
-            t.games AS games_played,
+            t.games AS games_played, t.wins, t.losses,
             t.points AS points_for, t.opponent_points AS points_against,
-            t.possessions, t.offensive_rating, t.defensive_rating, t.net_rating
+            t.offensive_possessions AS possessions,
+            t.offensive_rating, t.defensive_rating, t.net_rating
         FROM main_marts.agg_team_totals t
         LEFT JOIN main_marts.dim_editions e ON e.edition_id = t.edition_id
         LEFT JOIN main_marts.dim_competitions c ON c.competition_id = t.competition_id
@@ -127,31 +126,7 @@ def get_totals(
         """,
         fb.params,
     )
-    rows = cursor_to_dicts(cur)
-
-    # wins/losses no vienen materializados en agg_team_totals: se derivan
-    # aparte, agregando fact_team_games para el mismo team_id + contexto.
-    for row in rows:
-        wl_fb = SQLFilterBuilder(table_alias="g")
-        wl_fb.clauses.append("g.team_id = ?")
-        wl_fb.params.append(team_id)
-        wl_fb.add("edition_id", row.get("edition_id"))
-        wl_fb.add("competition_id", row.get("competition_id"))
-        cur.execute(
-            f"""
-            SELECT
-                SUM(CASE WHEN g.points > g.opponent_points THEN 1 ELSE 0 END) AS wins,
-                SUM(CASE WHEN g.points < g.opponent_points THEN 1 ELSE 0 END) AS losses
-            FROM main_marts.fact_team_games g
-            {wl_fb.where_sql()}
-            """,
-            wl_fb.params,
-        )
-        wl = row_to_dict(cur) or {}
-        row["wins"] = wl.get("wins")
-        row["losses"] = wl.get("losses")
-
-    return rows
+    return cursor_to_dicts(cur)
 
 
 def get_game_log(
@@ -181,7 +156,8 @@ def get_game_log(
             CASE WHEN g.points > g.opponent_points THEN 'W' ELSE 'L' END AS result,
             g.opponent_team_id, opp.full_name AS opponent_team_name,
             g.points AS points_for, g.opponent_points AS points_against,
-            g.possessions, g.offensive_rating, g.defensive_rating, g.net_rating
+            g.offensive_possessions AS possessions,
+            g.offensive_rating, g.defensive_rating, g.net_rating
         FROM main_marts.fact_team_games g
         LEFT JOIN main_marts.dim_editions e ON e.edition_id = g.edition_id
         LEFT JOIN main_marts.dim_competitions c ON c.competition_id = g.competition_id
