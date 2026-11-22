@@ -24,15 +24,22 @@ class PlayerSummary(BaseModel):
 
 class PlayerBasicInfo(BaseModel):
     """
-    El warehouse actual no tiene bio de jugador (nacimiento, nacionalidad,
-    posición, altura) en ningún sitio — no se ingiere todavía desde la API
-    de la ACB. Si algún día se añade, este es el sitio natural para meterlo.
+    Ficha del jugador (dim_players: su fila de roster más reciente). Fecha de
+    nacimiento, nacionalidad y altura no se ingieren todavía desde la API de la
+    ACB; si algún día se añaden, este es el sitio natural para meterlas.
     """
 
     id: int
     name: str
     shirt_number: str | None = None
+    position: str | None = None  # rol(es) del roster de la ACB, p. ej. "Base"
     headshot_image_url: str | None = None
+    headshot_no_background_url: str | None = None
+    current_team: NamedRef | None = None  # equipo de su ficha más reciente
+    current_club: NamedRef | None = None
+    first_season: NamedRef | None = None
+    last_season: NamedRef | None = None
+    seasons: int | None = None  # temporadas con ficha
 
 
 # ---- Producción / totales (agg_player_totals) --------------------------------
@@ -68,6 +75,24 @@ class PlayerTotals(BaseModel):
 
     effective_field_goal_pct: float | None = None
     true_shooting_pct: float | None = None
+
+    off_rebounds: float | None = None
+    def_rebounds: float | None = None
+    plus_minus: float | None = None
+    dunks: float | None = None
+    # posesiones de ataque de su equipo con él en pista (solo partidos con play-by-play):
+    # denominador de las tablas por 100 posesiones
+    offensive_possessions_on_court: int | None = None
+
+    # avanzadas, fórmulas de Basketball Reference (en %, 0-100)
+    usage_pct: float | None = None
+    assist_pct: float | None = None
+    turnover_pct: float | None = None
+    off_rebound_pct: float | None = None
+    def_rebound_pct: float | None = None
+    total_rebound_pct: float | None = None
+    steal_pct: float | None = None
+    block_pct: float | None = None
 
     double_doubles: int | None = None
     triple_doubles: int | None = None
@@ -182,3 +207,12 @@ class PlayerProfile(BaseModel):
     shooting: PlayerShootingProfile | None = None
     impact: PlayerImpact | None = None
     top_lineups: list[PlayerLineupParticipation] = []
+
+
+class PlayerSplit(BaseModel):
+    split: str  # location | result | role | month | opponent | clutch
+    key: str  # valor del split (home/away, win/loss, starter/bench, "2025-10", club_id del rival, clutch)
+    label: str | None = None  # texto para mostrar
+    games: int
+    seconds: int | None = None  # None en clutch (no se mide el tiempo en pista en clutch)
+    stats: dict[str, float | int | None]  # totales; los % ya calculados

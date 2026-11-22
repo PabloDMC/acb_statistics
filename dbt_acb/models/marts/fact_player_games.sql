@@ -56,6 +56,36 @@ team_totals AS (
 
 ),
 
+-- Totales del equipo y del rival en el partido (boxscore oficial, con rebotes y pérdidas de
+-- equipo) y minutos del equipo: base de las estadísticas avanzadas (USG%, AST%, REB%...) con
+-- las fórmulas de Basketball Reference.
+team_box AS (
+
+    SELECT
+        t.match_id,
+        t.team_id,
+        t.two_pointers_made + t.three_pointers_made AS fgm,
+        t.two_pointers_attempted + t.three_pointers_attempted AS fga,
+        t.three_pointers_attempted AS fg3a,
+        t.free_throws_attempted AS fta,
+        t.turnovers AS tov,
+        t.off_rebounds AS orb,
+        t.def_rebounds AS drb,
+        t.total_rebounds AS trb,
+        s.seconds
+    FROM {{ ref('int_team_boxscore') }} t
+    LEFT JOIN (
+        SELECT
+            match_id,
+            team_id,
+            SUM(CAST(SPLIT_PART(play_time, ':', 1) AS BIGINT) * 60 + CAST(SPLIT_PART(play_time, ':', 2) AS BIGINT)) AS seconds
+        FROM {{ ref('int_boxscore') }}
+        GROUP BY match_id, team_id
+    ) s
+        USING (match_id, team_id)
+
+),
+
 bs AS (
 
     SELECT *
@@ -237,9 +267,34 @@ final AS (
             (100.0 * (tt.opp_points - a.lineup_opp_points) / NULLIF(tt.team_defensive_possessions - a.defensive_possessions,0))
         ) AS onoff_net_rating,
 
+        -- totales del equipo y del rival en el partido (para las avanzadas)
+        tb.seconds AS team_seconds,
+        tb.fgm AS team_field_goals_made,
+        tb.fga AS team_field_goals_attempted,
+        tb.fta AS team_free_throws_attempted,
+        tb.tov AS team_turnovers,
+        tb.orb AS team_off_rebounds,
+        tb.drb AS team_def_rebounds,
+        tb.trb AS team_total_rebounds,
+        ob.fga AS opp_field_goals_attempted,
+        ob.fg3a AS opp_three_pointers_attempted,
+        ob.fta AS opp_free_throws_attempted,
+        ob.tov AS opp_turnovers,
+        ob.orb AS opp_off_rebounds,
+        ob.drb AS opp_def_rebounds,
+        ob.trb AS opp_total_rebounds,
+
         b.cat_insert_date
 
     FROM base b
+
+    LEFT JOIN team_box tb
+        ON tb.match_id = b.match_id
+       AND tb.team_id = b.team_id
+
+    LEFT JOIN team_box ob
+        ON ob.match_id = b.match_id
+       AND ob.team_id = b.opponent_team_id
 
     LEFT JOIN on_court a
         ON a.match_id = b.match_id

@@ -10,6 +10,7 @@ from app.schemas.common import CompetitionFilters, PageParams, PaginatedResponse
 from app.schemas.game_highs import PlayerGameHighs
 from app.schemas.match import ShotEvent
 from app.schemas.player import (
+    PlayerSplit,
     PlayerBasicInfo,
     PlayerGameLogEntry,
     PlayerImpact,
@@ -119,3 +120,13 @@ def get_player_lineups(
     limit: int = Query(default=10, ge=1, le=100),
 ):
     return player_service.get_lineup_participations(cur, player_id, filters, limit)
+
+
+@router.get("/{player_id}/splits", response_model=list[PlayerSplit])
+def get_player_splits(player_id: int, cur: DbDep, filters: FiltersDep):
+    """
+    Totales del jugador partidos por local/visitante, victoria/derrota, titular/suplente, mes y
+    rival (club), más una fila de clutch (últimos 5 minutos con ±5 puntos, desde la jugada a
+    jugada). Solo partidos jugados. Para medias, dividir entre `games`.
+    """
+    return player_service.get_splits(cur, player_id, filters)

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Query
 
 from app.core.db import get_db
 from app.schemas.common import CompetitionFilters, PageParams, PaginatedResponse
-from app.schemas.match import LineupStint, MatchSummary, ShotEvent
+from app.schemas.match import Boxscore, LineupStint, MatchSummary, PlayByPlayEvent, ShotEvent
 from app.services import match_service
 
 router = APIRouter(prefix="/matches", tags=["matches"])
@@ -18,8 +18,15 @@ PageDep = Annotated[PageParams, Depends()]
 
 
 @router.get("", response_model=PaginatedResponse[MatchSummary])
-def list_matches(cur: DbDep, filters: FiltersDep, page: PageDep):
-    items, total = match_service.list_matches(cur, filters, page)
+def list_matches(
+    cur: DbDep,
+    filters: FiltersDep,
+    page: PageDep,
+    round: int | None = Query(default=None, ge=1, description="Jornada (o ronda)"),
+    opponent_team_id: int | None = Query(default=None, description="Con team_id/club_id: enfrentamientos entre los dos"),
+    opponent_club_id: int | None = Query(default=None, description="Con team_id/club_id: enfrentamientos entre los dos"),
+):
+    items, total = match_service.list_matches(cur, filters, page, round, opponent_team_id, opponent_club_id)
     return PaginatedResponse(
         items=items, total=total, limit=page.limit, offset=page.offset,
         has_more=page.offset + page.limit < total,
@@ -49,3 +56,23 @@ def get_match_shots(
 @router.get("/{match_id}/lineups", response_model=list[LineupStint])
 def get_match_lineups(match_id: int, cur: DbDep):
     return match_service.get_lineup_stints(cur, match_id)
+
+
+@router.get("/{match_id}/boxscore", response_model=Boxscore)
+def get_match_boxscore(match_id: int, cur: DbDep):
+    """Boxscore completo: datos del partido, parciales por cuarto y, por equipo, la línea de cada jugador y los totales oficiales."""
+    return match_service.get_boxscore(cur, match_id)
+
+
+@router.get("/{match_id}/play-by-play", response_model=list[PlayByPlayEvent])
+def get_match_play_by_play(
+    match_id: int,
+    cur: DbDep,
+    quarter: int | None = Query(default=None, ge=1),
+    include_system: bool = Query(
+        default=False,
+        description="Incluir eventos de sistema (inicio/fin de cuarto, tiempos muertos, revisiones) y apuntes sintéticos",
+    ),
+):
+    """Jugada a jugada en orden, con el marcador tras cada evento. Sirve también para el gráfico de evolución del marcador."""
+    return match_service.get_play_by_play(cur, match_id, quarter, include_system)

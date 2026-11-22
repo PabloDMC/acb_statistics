@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
 from app.core.db import database
 from app.core.exceptions import register_exception_handlers
-from app.routers import clubs, leaderboards, matches, players, teams
+from app.routers import clubs, leaderboards, matches, players, seasons, stats, teams
 
 
 @asynccontextmanager
@@ -49,6 +49,8 @@ def create_app() -> FastAPI:
     app.include_router(clubs.router, prefix=settings.api_prefix)
     app.include_router(matches.router, prefix=settings.api_prefix)
     app.include_router(leaderboards.router, prefix=settings.api_prefix)
+    app.include_router(seasons.router, prefix=settings.api_prefix)
+    app.include_router(stats.router, prefix=settings.api_prefix)
 
     @app.get("/health", tags=["meta"])
     def health():

@@ -26,7 +26,7 @@ from app.schemas.common import CompetitionFilters, PageParams
 def get_basic_info(cur: duckdb.DuckDBPyConnection, team_id: int) -> dict | None:
     cur.execute(
         """
-        SELECT team_id AS id, full_name AS name, club_id, club_name
+        SELECT team_id AS id, full_name AS name, club_id, club_name, edition_id
         FROM (
             SELECT *, ROW_NUMBER() OVER (
                 PARTITION BY team_id ORDER BY edition_id DESC
@@ -91,6 +91,16 @@ def list_teams(
     return items, total
 
 
+def _team_stat_columns() -> list[str]:
+    from app.repositories.stats_repo import TEAM_COUNT_COLUMNS, TEAM_RATE_COLUMNS
+
+    skip = {"points", "opponent_points", "offensive_rating", "defensive_rating", "net_rating"}
+    return [c for c in TEAM_COUNT_COLUMNS + TEAM_RATE_COLUMNS if c not in skip]
+
+
+_TEAM_STAT_COLUMNS = _team_stat_columns()
+
+
 def get_totals(
     cur: duckdb.DuckDBPyConnection, team_id: int, filters: CompetitionFilters
 ) -> list[dict]:
@@ -116,7 +126,8 @@ def get_totals(
             t.games AS games_played, t.wins, t.losses,
             t.points AS points_for, t.opponent_points AS points_against,
             t.offensive_possessions AS possessions,
-            t.offensive_rating, t.defensive_rating, t.net_rating
+            t.offensive_rating, t.defensive_rating, t.net_rating,
+            {", ".join("t." + c for c in _TEAM_STAT_COLUMNS)}
         FROM main_marts.agg_team_totals t
         LEFT JOIN main_marts.dim_editions e ON e.edition_id = t.edition_id
         LEFT JOIN main_marts.dim_competitions c ON c.competition_id = t.competition_id
@@ -259,3 +270,71 @@ def get_game_highs(
         fb.params,
     )
     return row_to_dict(cur) or {}
+
+
+# ---------------------------------------------------------------------------
+# Tiros y rotaciones
+# ---------------------------------------------------------------------------
+
+def get_shots(
+    cur: duckdb.DuckDBPyConnection,
+    team_id: int,
+    side: str,
+    competition_phase: str | None,
+    clutch_only: bool,
+) -> list[dict]:
+    fb = SQLFilterBuilder(table_alias="s")
+    if side == "opponent":
+        # tiros de los rivales en los partidos del equipo
+        fb.clauses.append("s.match_id IN (SELECT match_id FROM main_marts.fact_team_games WHERE team_id = ?)")
+        fb.clauses.append("s.team_id <> ?")
+        fb.params.extend([team_id, team_id])
+    else:
+        fb.clauses.append("s.team_id = ?")
+        fb.params.append(team_id)
+    fb.add("competition_phase", competition_phase)
+    if clutch_only:
+        fb.clauses.append("s.is_clutch = TRUE")
+    # tiros de campo: fact_shots trae también los tiros libres (zona 14, en 0,0), que no
+    # van en una carta de tiro
+    fb.clauses.append("s.zone_id <> 14")
+    cur.execute(
+        f"""
+        SELECT
+            s.match_id, s.player_id, s.team_id,
+            s.x, s.y,
+            s.is_made AS made,
+            s.shot_value AS value,
+            s.zone_id,
+            s.shot_zone_basic AS zone,
+            s.shot_zone_area AS area,
+            s.shot_zone_range AS range,
+            s.is_clutch,
+            s.quarter,
+            s.seconds_remaining
+        FROM main_marts.fact_shots s
+        {fb.where_sql()}
+        ORDER BY s.match_id, s.quarter, s.seconds_remaining DESC
+        """,
+        fb.params,
+    )
+    return cursor_to_dicts(cur)
+
+
+def get_rotations(
+    cur: duckdb.DuckDBPyConnection, team_id: int, competition_phase: str | None
+) -> list[dict]:
+    fb = SQLFilterBuilder(table_alias="r")
+    fb.clauses.append("r.team_id = ?")
+    fb.params.append(team_id)
+    fb.add("competition_phase", competition_phase)
+    cur.execute(
+        f"""
+        SELECT r.competition_phase, r.player_id, r.minute, r.games_on_court, r.seconds_on_court,
+               r.team_games, r.player_games
+        FROM main_marts.agg_player_minute_on_court r
+        {fb.where_sql()}
+        """,
+        fb.params,
+    )
+    return cursor_to_dicts(cur)

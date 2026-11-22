@@ -115,6 +115,7 @@ def player_leaderboard(
                 t.edition_id, e.season_name AS edition_name,
                 t.competition_id, c.competition_name,
                 t.competition_phase,
+                t.games,
                 {value_expr} AS value
             FROM {_source_table('agg_player_totals', column, per)} t
             {base_join}
@@ -348,6 +349,7 @@ def _shooting_leaderboard_from_shots(
 ) -> list[dict]:
     fb = SQLFilterBuilder(table_alias="s")
     fb.clauses.append("s.is_clutch = TRUE")
+    fb.clauses.append("s.zone_id <> 14")  # sin tiros libres, como agg_player_shooting_zones
     fb.add("edition_id", filters.edition_id)
     fb.add("competition_id", filters.competition_id)
     fb.add("competition_phase", filters.competition_phase)

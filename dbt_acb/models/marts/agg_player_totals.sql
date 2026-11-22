@@ -66,7 +66,24 @@ with agg as (
 		sum(off_offensive_possessions) as off_offensive_possessions,
 		sum(off_defensive_possessions) as off_defensive_possessions,
 		sum(off_team_points) as off_team_points,
-		sum(off_opp_points) as off_opp_points
+		sum(off_opp_points) as off_opp_points,
+
+		-- totales del equipo y del rival en los partidos que jugó (para las avanzadas)
+		sum(team_seconds) filter (where seconds > 0) as team_seconds,
+		sum(team_field_goals_made) filter (where seconds > 0) as team_field_goals_made,
+		sum(team_field_goals_attempted) filter (where seconds > 0) as team_field_goals_attempted,
+		sum(team_free_throws_attempted) filter (where seconds > 0) as team_free_throws_attempted,
+		sum(team_turnovers) filter (where seconds > 0) as team_turnovers,
+		sum(team_off_rebounds) filter (where seconds > 0) as team_off_rebounds,
+		sum(team_def_rebounds) filter (where seconds > 0) as team_def_rebounds,
+		sum(team_total_rebounds) filter (where seconds > 0) as team_total_rebounds,
+		sum(opp_field_goals_attempted) filter (where seconds > 0) as opp_field_goals_attempted,
+		sum(opp_three_pointers_attempted) filter (where seconds > 0) as opp_three_pointers_attempted,
+		sum(opp_free_throws_attempted) filter (where seconds > 0) as opp_free_throws_attempted,
+		sum(opp_turnovers) filter (where seconds > 0) as opp_turnovers,
+		sum(opp_off_rebounds) filter (where seconds > 0) as opp_off_rebounds,
+		sum(opp_def_rebounds) filter (where seconds > 0) as opp_def_rebounds,
+		sum(opp_total_rebounds) filter (where seconds > 0) as opp_total_rebounds
 
 	from {{ ref('fact_player_games') }}
 
@@ -162,6 +179,33 @@ select
 	(
 		100.0 * off_team_points / NULLIF(off_offensive_possessions, 0)
 		- 100.0 * off_opp_points / NULLIF(off_defensive_possessions, 0)
-	) AS onoff_net_rating
+	) AS onoff_net_rating,
+
+	-- ===================================================================================
+	-- Avanzadas, con las fórmulas de Basketball Reference. Los totales de equipo y rival son
+	-- los de los partidos que jugó (BR usa los de toda la temporada del equipo). "min. de
+	-- equipo / 5" = minutos que le tocan a cada puesto. En segundos, que se cancelan.
+	-- ===================================================================================
+	100.0 * (field_goals_attempted + 0.44 * free_throws_attempted + turnovers) * (team_seconds / 5.0)
+		/ NULLIF(seconds * (team_field_goals_attempted + 0.44 * team_free_throws_attempted + team_turnovers), 0)
+		AS usage_pct,
+	100.0 * assists
+		/ NULLIF((seconds / NULLIF(team_seconds / 5.0, 0)) * team_field_goals_made - field_goals_made, 0)
+		AS assist_pct,
+	100.0 * turnovers / NULLIF(field_goals_attempted + 0.44 * free_throws_attempted + turnovers, 0)
+		AS turnover_pct,
+	100.0 * off_rebounds * (team_seconds / 5.0)
+		/ NULLIF(seconds * (team_off_rebounds + opp_def_rebounds), 0) AS off_rebound_pct,
+	100.0 * def_rebounds * (team_seconds / 5.0)
+		/ NULLIF(seconds * (team_def_rebounds + opp_off_rebounds), 0) AS def_rebound_pct,
+	100.0 * total_rebounds * (team_seconds / 5.0)
+		/ NULLIF(seconds * (team_total_rebounds + opp_total_rebounds), 0) AS total_rebound_pct,
+	-- posesiones del rival estimadas (FGA + 0.44 FTA - ORB + TOV): valen para todas las
+	-- temporadas, también las que no tienen play-by-play
+	100.0 * steals * (team_seconds / 5.0)
+		/ NULLIF(seconds * (opp_field_goals_attempted + 0.44 * opp_free_throws_attempted - opp_off_rebounds + opp_turnovers), 0)
+		AS steal_pct,
+	100.0 * blocks * (team_seconds / 5.0)
+		/ NULLIF(seconds * (opp_field_goals_attempted - opp_three_pointers_attempted), 0) AS block_pct
 
 from agg
