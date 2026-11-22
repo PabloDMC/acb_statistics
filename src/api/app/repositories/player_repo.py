@@ -32,17 +32,26 @@ _DISPLAY_NAME_SQL = (
 def get_basic_info(cur: duckdb.DuckDBPyConnection, player_id: int) -> dict | None:
     cur.execute(
         f"""
-        SELECT player_id AS id, {_DISPLAY_NAME_SQL} AS name,
-               player_shirt_number AS shirt_number,
-               player_headshot_image_url AS headshot_image_url
-        FROM (
-            SELECT *, ROW_NUMBER() OVER (
-                PARTITION BY player_id ORDER BY edition_id DESC
-            ) AS rn
-            FROM main_marts.dim_rosters
-            WHERE player_id = ?
-        )
-        WHERE rn = 1
+        SELECT
+            p.player_id AS id,
+            {_DISPLAY_NAME_SQL.replace('player_', 'p.player_')} AS name,
+            p.player_shirt_number AS shirt_number,
+            p.player_roles_concat AS position,
+            p.player_headshot_image_url AS headshot_image_url,
+            p.player_headshot_image_no_background_url AS headshot_no_background_url,
+            p.latest_team_id AS current_team_id, t.full_name AS current_team_name,
+            p.latest_club_id AS current_club_id, c.club_name AS current_club_name,
+            p.first_edition_id, ef.season_name AS first_season_name,
+            p.last_edition_id, el.season_name AS last_season_name,
+            p.editions AS seasons
+        FROM main_marts.dim_players p
+        LEFT JOIN (
+            SELECT team_id, any_value(full_name) AS full_name FROM main_marts.dim_teams GROUP BY team_id
+        ) t ON t.team_id = p.latest_team_id
+        LEFT JOIN main_marts.dim_clubs c ON c.club_id = p.latest_club_id
+        LEFT JOIN main_marts.dim_editions ef ON ef.edition_id = p.first_edition_id
+        LEFT JOIN main_marts.dim_editions el ON el.edition_id = p.last_edition_id
+        WHERE p.player_id = ?
         """,
         [player_id],
     )
@@ -145,7 +154,10 @@ _TOTALS_SELECT = """
         t.free_throws_made, t.free_throws_attempted, t.free_throws_pct,
 
         t.effective_field_goals_pct, t.true_shooting_pct,
-        t.is_double_double AS double_doubles, t.is_triple_double AS triple_doubles
+        t.is_double_double AS double_doubles, t.is_triple_double AS triple_doubles,
+        t.off_rebounds, t.def_rebounds, t.plus_minus, t.dunks,
+        t.offensive_possessions AS offensive_possessions_on_court,
+        t.usage_pct, t.assist_pct, t.turnover_pct, t.off_rebound_pct, t.def_rebound_pct, t.total_rebound_pct, t.steal_pct, t.block_pct
     FROM main_marts.agg_player_totals t
     LEFT JOIN main_marts.dim_editions e ON e.edition_id = t.edition_id
     LEFT JOIN main_marts.dim_competitions c ON c.competition_id = t.competition_id
@@ -444,6 +456,9 @@ def get_shots(
     if clutch_only:
         fb.clauses.append("s.is_clutch = TRUE")
 
+    # tiros de campo: fact_shots trae también los tiros libres (zona 14, en 0,0), que no
+    # van en una carta de tiro
+    fb.clauses.append("s.zone_id <> 14")
     cur.execute(
         f"""
         SELECT
@@ -451,7 +466,11 @@ def get_shots(
             s.x, s.y,
             s.is_made AS made,
             s.shot_value AS value,
+            s.team_id,
+            s.zone_id,
             s.shot_zone_basic AS zone,
+            s.shot_zone_area AS area,
+            s.shot_zone_range AS range,
             s.is_clutch,
             s.quarter,
             s.seconds_remaining
@@ -501,3 +520,102 @@ def get_game_highs(
         fb.params,
     )
     return row_to_dict(cur) or {}
+
+
+# ---------------------------------------------------------------------------
+# Splits (local/visitante, victoria/derrota, titular/suplente, mes, rival) y clutch
+# ---------------------------------------------------------------------------
+
+_SPLIT_SUMS = """
+    count(*) AS games,
+    sum(seconds) AS seconds,
+    sum(CASE WHEN is_win THEN 1 ELSE 0 END) AS wins,
+    sum(points) AS points,
+    sum(field_goals_made) AS field_goals_made,
+    sum(field_goals_attempted) AS field_goals_attempted,
+    sum(three_pointers_made) AS three_pointers_made,
+    sum(three_pointers_attempted) AS three_pointers_attempted,
+    sum(free_throws_made) AS free_throws_made,
+    sum(free_throws_attempted) AS free_throws_attempted,
+    sum(off_rebounds) AS off_rebounds,
+    sum(def_rebounds) AS def_rebounds,
+    sum(total_rebounds) AS total_rebounds,
+    sum(assists) AS assists,
+    sum(steals) AS steals,
+    sum(blocks) AS blocks,
+    sum(turnovers) AS turnovers,
+    sum(personal_fouls) AS personal_fouls,
+    sum(plus_minus) AS plus_minus,
+    sum(rating) AS rating
+"""
+
+
+def get_splits(cur: duckdb.DuckDBPyConnection, player_id: int, filters: CompetitionFilters) -> list[dict]:
+    fb = SQLFilterBuilder(table_alias="g")
+    fb.clauses.append("g.player_id = ?")
+    fb.params.append(player_id)
+    fb.add_competition_filters(filters)
+    fb.clauses.append("g.seconds > 0")
+    cur.execute(
+        f"""
+        WITH g AS (
+            SELECT g.*, m.match_start_time
+            FROM main_marts.fact_player_games g
+            LEFT JOIN main_marts.dim_matches m ON m.match_id = g.match_id
+            {fb.where_sql()}
+        ),
+        tagged AS (
+            SELECT 'location' AS split, CASE WHEN is_home THEN 'home' ELSE 'away' END AS key,
+                   CASE WHEN is_home THEN 'Local' ELSE 'Visitante' END AS label, * FROM g
+            UNION ALL
+            SELECT 'result', CASE WHEN is_win THEN 'win' ELSE 'loss' END,
+                   CASE WHEN is_win THEN 'Victoria' ELSE 'Derrota' END, * FROM g
+            UNION ALL
+            SELECT 'role', CASE WHEN is_starter THEN 'starter' ELSE 'bench' END,
+                   CASE WHEN is_starter THEN 'Titular' ELSE 'Suplente' END, * FROM g
+            UNION ALL
+            SELECT 'month', strftime(match_start_time, '%Y-%m'), strftime(match_start_time, '%Y-%m'), * FROM g
+            UNION ALL
+            SELECT 'opponent', CAST(opponent_club_id AS VARCHAR), opponent_team_name, * FROM g
+        )
+        SELECT split, key, arg_max(label, match_start_time) AS label, {_SPLIT_SUMS}
+        FROM tagged
+        WHERE key IS NOT NULL
+        GROUP BY split, key
+        ORDER BY split, key
+        """,
+        fb.params,
+    )
+    return cursor_to_dicts(cur)
+
+
+def get_clutch(cur: duckdb.DuckDBPyConnection, player_id: int, filters: CompetitionFilters) -> dict | None:
+    fb = SQLFilterBuilder(table_alias="c")
+    fb.clauses.append("c.player_id = ?")
+    fb.params.append(player_id)
+    fb.add_competition_filters(filters)
+    cur.execute(
+        f"""
+        SELECT
+            sum(games) AS games,
+            sum(points) AS points,
+            sum(field_goals_made) AS field_goals_made,
+            sum(field_goals_attempted) AS field_goals_attempted,
+            sum(three_pointers_made) AS three_pointers_made,
+            sum(three_pointers_attempted) AS three_pointers_attempted,
+            sum(free_throws_made) AS free_throws_made,
+            sum(free_throws_attempted) AS free_throws_attempted,
+            sum(off_rebounds) AS off_rebounds,
+            sum(def_rebounds) AS def_rebounds,
+            sum(total_rebounds) AS total_rebounds,
+            sum(assists) AS assists,
+            sum(steals) AS steals,
+            sum(blocks) AS blocks,
+            sum(turnovers) AS turnovers
+        FROM main_marts.agg_player_clutch c
+        {fb.where_sql()}
+        """,
+        fb.params,
+    )
+    row = row_to_dict(cur)
+    return row if row and row.get("games") else None

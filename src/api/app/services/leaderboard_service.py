@@ -68,6 +68,7 @@ def player_leaderboard(
             player={"id": row["player_id"], "name": names_by_id.get(row["player_id"])},
             club_team=club_team_ref(row),
             context=competition_context(row),
+            games=row.get("games", row.get("total_games")),
             value=row["value"],
         )
         for row in rows

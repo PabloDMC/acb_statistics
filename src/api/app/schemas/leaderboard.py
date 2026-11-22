@@ -179,6 +179,7 @@ class PlayerLeaderboardEntry(BaseModel):
     player: NamedRef
     club_team: ClubTeamRef
     context: CompetitionContext
+    games: int | None = None  # partidos jugados que cubre la entrada (tamaño de la muestra)
     value: float
 
 

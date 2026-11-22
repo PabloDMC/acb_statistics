@@ -74,7 +74,7 @@ Documentación interactiva en `http://localhost:8000/docs`.
 
 ### Players
 - `GET /api/v1/players?q=&edition_id=&competition_id=&club_id=&team_id=&limit=&offset=&sort=`
-- `GET /api/v1/players/{id}` — info básica
+- `GET /api/v1/players/{id}` — ficha: dorsal, posición, fotos, equipo y club actuales, primera y última temporada
 - `GET /api/v1/players/{id}/profile` — **endpoint compuesto** para la página
   de jugador (perfil + totales + shooting + impacto + top lineups) en una
   sola llamada
@@ -84,6 +84,9 @@ Documentación interactiva en `http://localhost:8000/docs`.
 - `GET /api/v1/players/{id}/shooting` — incluye desglose por zonas
 - `GET /api/v1/players/{id}/impact` — on-court / on-off
 - `GET /api/v1/players/{id}/lineups` — quintetos en los que participa
+- `GET /api/v1/players/{id}/shots` — tiros con coordenadas y zona
+- `GET /api/v1/players/{id}/splits` — local/visitante, victoria/derrota, titular/suplente, mes, rival y clutch
+- `GET /api/v1/players/{id}/game-highs`
 
 ### Teams
 - `GET /api/v1/teams?q=&...filtros...`
@@ -91,18 +94,53 @@ Documentación interactiva en `http://localhost:8000/docs`.
 - `GET /api/v1/teams/{id}/games`
 - `GET /api/v1/teams/{id}/lineups?combination_size=2..5` — combinaciones de
   jugadores (parejas, tríos, quintetos...)
+- `GET /api/v1/teams/{id}/shots?side=own|opponent` — tiros del equipo o de sus rivales
+- `GET /api/v1/teams/{id}/rotations` — mapa de rotaciones de la temporada (jugador × minuto 0-39)
+- `GET /api/v1/teams/{id}/game-highs`
 
 ### Matches
-- `GET /api/v1/matches?...filtros...`
+- `GET /api/v1/matches?...filtros...&round=&opponent_team_id=&opponent_club_id=` — con `team_id` + `opponent_team_id`, enfrentamientos directos
 - `GET /api/v1/matches/{id}`
 - `GET /api/v1/matches/{id}/shots?team_id=&player_id=` — datos para shot chart
-- `GET /api/v1/matches/{id}/lineups` — stints de quinteto del partido
+- `GET /api/v1/matches/{id}/lineups` — stints de quinteto del partido (base de las rotaciones de un partido)
+- `GET /api/v1/matches/{id}/boxscore` — parciales por cuarto, línea de cada jugador y totales oficiales
+- `GET /api/v1/matches/{id}/play-by-play?quarter=&include_system=` — jugada a jugada con el marcador (base del gráfico de evolución)
 
 ### Leaderboards
 - `GET /api/v1/leaderboards/metrics` — métricas disponibles (para que
   Streamlit monte un selector sin hardcodear)
 - `GET /api/v1/leaderboards/players?metric=points&...filtros...`
 - `GET /api/v1/leaderboards/teams?metric=net_rating&...filtros...`
+
+### Temporada, estadísticas y búsqueda
+- `GET /api/v1/editions` — temporadas, competiciones y fases (selectores)
+- `GET /api/v1/standings?edition_id=&competition_id=1&competition_phase=LR&round=` — clasificación con
+  el desempate oficial: victorias; entre empatados, enfrentamientos directos, basket-average
+  particular, basket-average general y puntos a favor (repitiendo el criterio entre los que sigan empatados)
+- `GET /api/v1/standings/history?edition_id=` — posición de cada equipo tras cada jornada
+- `GET /api/v1/stats/players?per=total|per_game|per_36|per_100&min_games=&sort=` — tabla de temporada
+  con todas las columnas, incluidas las avanzadas (USG%, AST%, TOV%, ORB%, DRB%, TRB%, STL%, BLK%).
+  Con `team_id`, la plantilla de un equipo
+- `GET /api/v1/stats/teams?per=total|per_game|per_100` — tabla de equipos con totales del rival (`opp_*`),
+  ritmo y four factors
+- `GET /api/v1/league/shot-zones?edition_id=` — tiro de la liga por zona (referencia para las cartas de tiro)
+- `GET /api/v1/search?q=` — jugadores, clubes y equipos (sin distinguir acentos)
+
+Notas de cálculo:
+- **Avanzadas de jugador**: fórmulas de Basketball Reference con los totales de equipo y rival de
+  los partidos que jugó (BR usa los de toda la temporada del equipo). STL% usa las posesiones del
+  rival estimadas (FGA + 0.44·FTA − ORB + TOV), así que vale también en temporadas sin play-by-play.
+- **Por 100 posesiones**: en jugadores, solo partidos con play-by-play; en equipos, por partido
+  escalado al ritmo medio de los partidos con play-by-play.
+- **Rotaciones y clutch** solo cubren partidos con play-by-play.
+
+### Coordenadas de los tiros
+`x` e `y` vienen en **milímetros** con el **origen en el centro del aro**:
+- `x`: posición lateral, de −7500 a 7500 (las bandas están a ±7,5 m).
+- `y`: distancia hacia el centro del campo, desde 0 (a la altura del aro) hasta ~25000.
+- Distancia al aro = `sqrt(x² + y²)` (ya calculada en `fact_shots.distance_mm`).
+- Las temporadas anteriores a 2020-21 (edición < 85) venían en otra escala y se normalizan en
+  `int_shots` a estas mismas unidades.
 
 Todos los endpoints de listado aceptan los filtros comunes
 (`edition_id`, `competition_id`, `competition_phase`, `club_id`, `team_id`)

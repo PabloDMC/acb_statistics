@@ -4,7 +4,33 @@
     tags=['acb_analytics']
 ) }}
 
-with agg as (
+-- cada partido del equipo con la línea del rival al lado (para los totales del rival y los four factors)
+with games as (
+	select
+		g.*,
+		o.field_goals_made as opp_field_goals_made,
+		o.field_goals_attempted as opp_field_goals_attempted,
+		o.two_pointers_made as opp_two_pointers_made,
+		o.two_pointers_attempted as opp_two_pointers_attempted,
+		o.three_pointers_made as opp_three_pointers_made,
+		o.three_pointers_attempted as opp_three_pointers_attempted,
+		o.free_throws_made as opp_free_throws_made,
+		o.free_throws_attempted as opp_free_throws_attempted,
+		o.assists as opp_assists,
+		o.off_rebounds as opp_off_rebounds,
+		o.def_rebounds as opp_def_rebounds,
+		o.total_rebounds as opp_total_rebounds,
+		o.steals as opp_steals,
+		o.turnovers as opp_turnovers,
+		o.blocks as opp_blocks,
+		o.personal_fouls as opp_personal_fouls
+	from {{ ref('fact_team_games') }} g
+	left join {{ ref('fact_team_games') }} o
+		on o.match_id = g.match_id
+	   and o.team_id = g.opponent_team_id
+),
+
+agg as (
 	select
 		edition_id,
 		competition_id,
@@ -46,8 +72,24 @@ with agg as (
         -- puntos de los partidos que tienen posesiones: en temporadas con play-by-play incompleto
         -- dividir todos los puntos entre las posesiones de solo algunos partidos inflaba los ratings
         sum(points) filter (where has_possessions) as possession_points,
-        sum(opponent_points) filter (where has_possessions) as possession_opponent_points
-	from {{ ref('fact_team_games') }}
+        sum(opponent_points) filter (where has_possessions) as possession_opponent_points,
+		sum(opp_field_goals_made) as opp_field_goals_made,
+		sum(opp_field_goals_attempted) as opp_field_goals_attempted,
+		sum(opp_two_pointers_made) as opp_two_pointers_made,
+		sum(opp_two_pointers_attempted) as opp_two_pointers_attempted,
+		sum(opp_three_pointers_made) as opp_three_pointers_made,
+		sum(opp_three_pointers_attempted) as opp_three_pointers_attempted,
+		sum(opp_free_throws_made) as opp_free_throws_made,
+		sum(opp_free_throws_attempted) as opp_free_throws_attempted,
+		sum(opp_assists) as opp_assists,
+		sum(opp_off_rebounds) as opp_off_rebounds,
+		sum(opp_def_rebounds) as opp_def_rebounds,
+		sum(opp_total_rebounds) as opp_total_rebounds,
+		sum(opp_steals) as opp_steals,
+		sum(opp_turnovers) as opp_turnovers,
+		sum(opp_blocks) as opp_blocks,
+		sum(opp_personal_fouls) as opp_personal_fouls
+	from games
 	group by edition_id, competition_id, competition_phase, team_id
 )
 select 
@@ -98,5 +140,34 @@ select
     possession_opponent_points,
     100.0 * possession_points / NULLIF(offensive_possessions, 0) as offensive_rating,
     100.0 * possession_opponent_points / NULLIF(defensive_possessions, 0) as defensive_rating,
-    100.0 * (possession_points / NULLIF(offensive_possessions, 0) - possession_opponent_points / NULLIF(defensive_possessions, 0)) as net_rating
+    100.0 * (possession_points / NULLIF(offensive_possessions, 0) - possession_opponent_points / NULLIF(defensive_possessions, 0)) as net_rating,
+	opp_field_goals_made,
+	opp_field_goals_attempted,
+	opp_two_pointers_made,
+	opp_two_pointers_attempted,
+	opp_three_pointers_made,
+	opp_three_pointers_attempted,
+	opp_free_throws_made,
+	opp_free_throws_attempted,
+	opp_assists,
+	opp_off_rebounds,
+	opp_def_rebounds,
+	opp_total_rebounds,
+	opp_steals,
+	opp_turnovers,
+	opp_blocks,
+	opp_personal_fouls,
+
+	-- ritmo: posesiones de ataque por partido, solo con los partidos que tienen posesiones
+	offensive_possessions * 1.0 / NULLIF(games_with_possessions, 0) as possessions_per_game,
+
+	-- four factors (Dean Oliver), del equipo y del rival
+	(field_goals_made + 0.5 * three_pointers_made) / NULLIF(field_goals_attempted, 0) as four_factors_efg_pct,
+	turnovers / NULLIF(field_goals_attempted + 0.44 * free_throws_attempted + turnovers, 0) as four_factors_tov_pct,
+	off_rebounds / NULLIF(off_rebounds + opp_def_rebounds, 0) as four_factors_orb_pct,
+	free_throws_made / NULLIF(field_goals_attempted, 0) as four_factors_ft_rate,
+	(opp_field_goals_made + 0.5 * opp_three_pointers_made) / NULLIF(opp_field_goals_attempted, 0) as opp_four_factors_efg_pct,
+	opp_turnovers / NULLIF(opp_field_goals_attempted + 0.44 * opp_free_throws_attempted + opp_turnovers, 0) as opp_four_factors_tov_pct,
+	opp_off_rebounds / NULLIF(opp_off_rebounds + def_rebounds, 0) as opp_four_factors_orb_pct,
+	opp_free_throws_made / NULLIF(opp_field_goals_attempted, 0) as opp_four_factors_ft_rate
 from agg

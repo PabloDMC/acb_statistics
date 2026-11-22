@@ -6,7 +6,17 @@ from app.core.exceptions import ResourceNotFoundError
 from app.repositories import common_repo, team_repo
 from app.schemas.common import CompetitionFilters, PageParams
 from app.schemas.game_highs import StatHigh, TeamGameHighs
-from app.schemas.team import LineupCombination, TeamGameLogEntry, TeamSummary, TeamTotals
+from app.schemas.match import ShotEvent
+from app.schemas.team import (
+    LineupCombination,
+    PlayerRotation,
+    RotationMinute,
+    TeamGameLogEntry,
+    TeamRotations,
+    TeamSummary,
+    TeamTotals,
+)
+from app.services import match_service
 from app.services.mappers import club_team_ref, competition_context, named_ref, shooting_split  # noqa: F401
 
 
@@ -45,6 +55,7 @@ def get_totals(
             offensive_rating=row.get("offensive_rating"),
             defensive_rating=row.get("defensive_rating"),
             net_rating=row.get("net_rating"),
+            stats={c: row.get(c) for c in team_repo._TEAM_STAT_COLUMNS},
         )
         for row in rows
     ]
@@ -119,3 +130,60 @@ def get_game_highs(
         name: StatHigh(value=row.get(f"{name}_value"), match_id=row.get(f"{name}_match_id"))
         for name in TeamGameHighs.model_fields
     })
+
+
+def get_shots(
+    cur: duckdb.DuckDBPyConnection,
+    team_id: int,
+    side: str,
+    competition_phase: str | None,
+    clutch_only: bool,
+) -> list[ShotEvent]:
+    info = team_repo.require_basic_info(cur, team_id)
+    rows = team_repo.get_shots(cur, team_id, side, competition_phase, clutch_only)
+    ids = [r["player_id"] for r in rows if r.get("player_id") is not None]
+    names = common_repo.player_names_batch(cur, ids, info.get("edition_id"))
+    return [match_service.shot_from_row(r, names.get(r.get("player_id"))) for r in rows]
+
+
+def get_rotations(
+    cur: duckdb.DuckDBPyConnection, team_id: int, competition_phase: str | None
+) -> TeamRotations:
+    info = team_repo.require_basic_info(cur, team_id)
+    rows = team_repo.get_rotations(cur, team_id, competition_phase)
+    if not rows:
+        raise ResourceNotFoundError("team_rotations", {"team_id": team_id, "competition_phase": competition_phase})
+
+    # Varias fases (liga + playoffs) se suman: partidos del equipo = suma por fase
+    team_games = sum({r["competition_phase"]: r["team_games"] for r in rows}.values())
+    player_games: dict[int, dict[str, int]] = {}
+    per_minute: dict[int, dict[int, list[int]]] = {}
+    for r in rows:
+        player_games.setdefault(r["player_id"], {})[r["competition_phase"]] = r["player_games"]
+        cell = per_minute.setdefault(r["player_id"], {}).setdefault(r["minute"], [0, 0])
+        cell[0] += r["games_on_court"]
+        cell[1] += r["seconds_on_court"]
+
+    names = common_repo.player_names_batch(cur, list(per_minute), info.get("edition_id"))
+    players = []
+    for pid, minutes in per_minute.items():
+        players.append(PlayerRotation(
+            player={"id": pid, "name": names.get(pid)},
+            player_games=sum(player_games[pid].values()),
+            total_seconds=sum(c[1] for c in minutes.values()),
+            minutes=[
+                RotationMinute(
+                    minute=m,
+                    games_on_court=minutes.get(m, [0, 0])[0],
+                    pct_games_on_court=minutes.get(m, [0, 0])[0] / team_games if team_games else None,
+                    avg_seconds=minutes.get(m, [0, 0])[1] / team_games if team_games else None,
+                )
+                for m in range(40)
+            ],
+        ))
+    players.sort(key=lambda p: p.total_seconds, reverse=True)
+    return TeamRotations(
+        team={"id": team_id, "name": info.get("full_name") or info.get("name") or info.get("team_name")},
+        team_games=team_games,
+        players=players,
+    )

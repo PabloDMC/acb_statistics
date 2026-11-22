@@ -8,6 +8,7 @@ from app.schemas.common import CompetitionFilters, PageParams
 from app.schemas.game_highs import PlayerGameHighs, StatHigh
 from app.schemas.match import ShotEvent
 from app.schemas.player import (
+    PlayerSplit,
     PlayerBasicInfo,
     PlayerGameLogEntry,
     PlayerImpact,
@@ -17,6 +18,7 @@ from app.schemas.player import (
     PlayerSummary,
     PlayerTotals,
 )
+from app.services import match_service
 from app.services.mappers import club_team_ref, competition_context, named_ref, shooting_split
 
 
@@ -44,6 +46,19 @@ def _totals_from_row(row: dict) -> PlayerTotals:
         true_shooting_pct=row.get("true_shooting_pct"),
         double_doubles=row.get("double_doubles"),
         triple_doubles=row.get("triple_doubles"),
+        off_rebounds=row.get("off_rebounds"),
+        def_rebounds=row.get("def_rebounds"),
+        plus_minus=row.get("plus_minus"),
+        dunks=row.get("dunks"),
+        offensive_possessions_on_court=row.get("offensive_possessions_on_court"),
+        usage_pct=row.get("usage_pct"),
+        assist_pct=row.get("assist_pct"),
+        turnover_pct=row.get("turnover_pct"),
+        off_rebound_pct=row.get("off_rebound_pct"),
+        def_rebound_pct=row.get("def_rebound_pct"),
+        total_rebound_pct=row.get("total_rebound_pct"),
+        steal_pct=row.get("steal_pct"),
+        block_pct=row.get("block_pct"),
     )
 
 
@@ -148,9 +163,25 @@ def list_players(
     return items, total
 
 
+def _basic_from_row(row: dict) -> PlayerBasicInfo:
+    return PlayerBasicInfo(
+        id=row["id"],
+        name=row.get("name"),
+        shirt_number=row.get("shirt_number"),
+        position=row.get("position"),
+        headshot_image_url=row.get("headshot_image_url"),
+        headshot_no_background_url=row.get("headshot_no_background_url"),
+        current_team=named_ref(row, "current_team_id", "current_team_name"),
+        current_club=named_ref(row, "current_club_id", "current_club_name"),
+        first_season=named_ref(row, "first_edition_id", "first_season_name"),
+        last_season=named_ref(row, "last_edition_id", "last_season_name"),
+        seasons=row.get("seasons"),
+    )
+
+
 def get_basic_info(cur: duckdb.DuckDBPyConnection, player_id: int) -> PlayerBasicInfo:
     row = player_repo.require_basic_info(cur, player_id)
-    return PlayerBasicInfo(**row)
+    return _basic_from_row(row)
 
 
 def get_totals(
@@ -240,18 +271,7 @@ def get_shots(
     basic = player_repo.require_basic_info(cur, player_id)
     rows = player_repo.get_shots(cur, player_id, filters, clutch_only)
     return [
-        ShotEvent(
-            player={"id": player_id, "name": basic.get("name")},
-            match_id=row.get("match_id"),
-            x=row["x"],
-            y=row["y"],
-            made=row["made"],
-            value=row["value"],
-            zone=row.get("zone"),
-            is_clutch=row.get("is_clutch"),
-            quarter=row.get("quarter"),
-            seconds_remaining=row.get("seconds_remaining"),
-        )
+        match_service.shot_from_row({**row, "player_id": player_id}, basic.get("name"))
         for row in rows
     ]
 
@@ -298,7 +318,7 @@ def get_profile(
     names_by_id = common_repo.player_names_batch(cur, list(all_ids), lineup_edition_id)
 
     return PlayerProfile(
-        player=PlayerBasicInfo(**basic),
+        player=_basic_from_row(basic),
         context=competition_context(context_source),
         club_team=club_team_ref(latest_totals) if latest_totals else club_team_ref({}),
         totals=_totals_from_row(latest_totals) if latest_totals else None,
@@ -306,3 +326,43 @@ def get_profile(
         impact=_impact_from_row(impact_row) if impact_row else None,
         top_lineups=_lineup_rows_to_schema(lineup_rows, player_id, names_by_id),
     )
+
+
+_SPLIT_STATS = [
+    "wins", "points", "field_goals_made", "field_goals_attempted",
+    "three_pointers_made", "three_pointers_attempted", "free_throws_made", "free_throws_attempted",
+    "off_rebounds", "def_rebounds", "total_rebounds", "assists", "steals", "blocks", "turnovers",
+    "personal_fouls", "plus_minus", "rating",
+]
+
+
+def _split_stats(row: dict) -> dict:
+    stats = {k: row.get(k) for k in _SPLIT_STATS if k in row}
+
+    def pct(m, a):
+        return row[m] / row[a] if row.get(a) else None
+
+    stats["field_goals_pct"] = pct("field_goals_made", "field_goals_attempted")
+    stats["three_pointers_pct"] = pct("three_pointers_made", "three_pointers_attempted")
+    stats["free_throws_pct"] = pct("free_throws_made", "free_throws_attempted")
+    return stats
+
+
+def get_splits(
+    cur: duckdb.DuckDBPyConnection, player_id: int, filters: CompetitionFilters
+) -> list[PlayerSplit]:
+    player_repo.require_basic_info(cur, player_id)
+    splits = [
+        PlayerSplit(
+            split=r["split"], key=r["key"], label=r.get("label"),
+            games=r["games"], seconds=r.get("seconds"), stats=_split_stats(r),
+        )
+        for r in player_repo.get_splits(cur, player_id, filters)
+    ]
+    clutch = player_repo.get_clutch(cur, player_id, filters)
+    if clutch:
+        splits.append(PlayerSplit(
+            split="clutch", key="clutch", label="Clutch (últimos 5 min, ±5 puntos)",
+            games=clutch["games"], seconds=None, stats=_split_stats(clutch),
+        ))
+    return splits
