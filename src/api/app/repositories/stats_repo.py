@@ -85,9 +85,11 @@ def player_stats(
     per: str,
     min_games: int,
     page: PageParams,
+    player_id: int | None = None,
 ) -> tuple[list[dict], int]:
     fb = SQLFilterBuilder(table_alias="t")
     fb.add_competition_filters(filters)
+    fb.add("player_id", player_id)
     fb.clauses.append("t.games >= ?")
     fb.params.append(min_games)
     where_sql = fb.where_sql()

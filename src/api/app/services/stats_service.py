@@ -12,9 +12,14 @@ _TEAM_STATS = stats_repo.TEAM_COUNT_COLUMNS + stats_repo.TEAM_RATE_COLUMNS + sta
 
 
 def player_stats(
-    cur: duckdb.DuckDBPyConnection, filters: CompetitionFilters, per: str, min_games: int, page: PageParams
+    cur: duckdb.DuckDBPyConnection,
+    filters: CompetitionFilters,
+    per: str,
+    min_games: int,
+    page: PageParams,
+    player_id: int | None = None,
 ) -> tuple[list[PlayerStatsRow], int]:
-    rows, total = stats_repo.player_stats(cur, filters, per, min_games, page)
+    rows, total = stats_repo.player_stats(cur, filters, per, min_games, page, player_id)
     items = [
         PlayerStatsRow(
             player={"id": r["player_id"], "name": r.get("name")},
