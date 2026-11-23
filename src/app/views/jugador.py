@@ -88,9 +88,14 @@ if section == "Partido a partido":
     else:
         df = pd.DataFrame([
             {
+                "Fecha": g.get("date"),
+                "Temporada": g["context"]["edition"]["name"],
                 "Competición": g["context"]["competition"]["name"],
                 "Fase": g["context"]["competition_phase"],
+                "J": g.get("round"),
                 "Rival": ("vs " if g.get("is_home") else "@ ") + ((g.get("opponent") or {}).get("name") or ""),
+                "Res": g.get("result"),
+                "Marcador": g.get("score"),
                 "Min": round((g.get("seconds") or 0) / 60, 1),
                 "Pts": g.get("points"),
                 "Reb": g.get("rebounds"),
@@ -211,8 +216,9 @@ if section == "Tiro":
             league_pct = {zid: z.get("pct") for zid, z in league.items()}
             fig = charts.shot_hexes(shots, league_pct) if mode == "Hexágonos" else charts.shot_points(shots)
             st.plotly_chart(fig, use_container_width=True)
-            st.caption("Hexágonos: tamaño = volumen de tiro; color = acierto frente a la media de la liga en esa zona "
-                       "(rojo, mejor; azul, peor).")
+            st.caption("Hexágonos: tamaño = volumen de tiro en ese punto; color = acierto en esa zona frente a la media de la liga "
+                       "en la temporada (todas las competiciones). Con «solo clutch» se comparan los tiros en clutch con esa "
+                       "misma media general.")
         else:
             st.caption("Sin tiros con coordenadas en este contexto.")
 
@@ -276,6 +282,12 @@ if section == "Máximos":
             {
                 "Estadística": HIGH_NAMES.get(k, k),
                 "Máximo": (v["value"] / 60 if k == "seconds_played" and v.get("value") is not None else v.get("value")),
+                "Rival": (v.get("opponent") or {}).get("name"),
+                "Res": v.get("result"),
+                "Marcador": v.get("score"),
+                "Fecha": v.get("date"),
+                "Temporada": v.get("season"),
+                "Competición": v.get("competition"),
                 "_id": v.get("match_id"),
             }
             for k, v in highs.items()

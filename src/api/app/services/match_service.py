@@ -47,12 +47,21 @@ def _parse_referees(value) -> list[str]:
     return [part.strip().strip("'\"") for part in text.split(",") if part.strip()]
 
 
-def shot_from_row(row: dict, player_name: str | None) -> ShotEvent:
-    """Fila de fact_shots -> ShotEvent (compartido por partido, jugador y equipo)."""
+def shot_from_row(row: dict, player_name: str | None, match_infos: dict | None = None) -> ShotEvent:
+    """Fila de fact_shots -> ShotEvent (compartido por partido, jugador y equipo). Con
+    `match_infos` (common_repo.match_info_batch) añade fecha y rival."""
+    match_id = row.get("match_id") or row.get("shot_match_id")
+    ctx = common_repo.match_context_for_team((match_infos or {}).get(match_id), row.get("team_id"))
+    score = None
+    if row.get("score_team") is not None and row.get("score_opp") is not None:
+        score = f"{row['score_team']}-{row['score_opp']}"
     return ShotEvent(
         player={"id": row.get("player_id"), "name": player_name},
         team_id=row.get("team_id"),
-        match_id=row.get("match_id"),
+        match_id=match_id,
+        date=ctx.get("date"),
+        opponent=ctx.get("opponent"),
+        score=score,
         x=row["x"],
         y=row["y"],
         made=row["made"],
@@ -97,7 +106,8 @@ def get_shots(
     all_ids = {row["player_id"] for row in rows if row.get("player_id") is not None}
     names_by_id = common_repo.player_names_batch(cur, list(all_ids), match.get("edition_id"))
 
-    return [shot_from_row(row, names_by_id.get(row["player_id"])) for row in rows]
+    infos = common_repo.match_info_batch(cur, [match_id])
+    return [shot_from_row(row, names_by_id.get(row["player_id"]), infos) for row in rows]
 
 
 def get_lineup_stints(cur: duckdb.DuckDBPyConnection, match_id: int) -> list[LineupStint]:
@@ -143,11 +153,35 @@ _BOX_PLAYER_STATS = [
 ]
 
 
-def get_boxscore(cur: duckdb.DuckDBPyConnection, match_id: int) -> Boxscore:
+def _quarter_box(cur, match_id: int, quarter: int, players: list[dict]) -> tuple[list[dict], dict]:
+    """Sustituye las líneas del partido por las del cuarto (jugada a jugada + tramos). Los
+    totales de equipo son la suma de sus jugadores (sin rebotes ni pérdidas de equipo)."""
+    qbox = match_repo.get_quarter_box(cur, match_id, quarter)
+    out = []
+    for p in players:
+        q = qbox.get(p["player_id"], {})
+        sec = q.get("seconds") or 0
+        row = {k: p.get(k) for k in ("team_id", "player_id", "player_name", "shirt_number", "position", "is_starter")}
+        row.update({c: q.get(c, 0) or 0 for c in _BOX_PLAYER_STATS if c not in ("rating",)})
+        row["rating"] = None
+        row["seconds"] = sec
+        row["play_time"] = f"{sec // 60:d}:{sec % 60:02d}" if sec else None
+        out.append(row)
+    teams: dict[int, dict] = {}
+    for r in out:
+        t = teams.setdefault(r["team_id"], {c: 0 for c in _BOX_PLAYER_STATS if c not in ("plus_minus", "rating")})
+        for c in t:
+            t[c] += r.get(c) or 0
+    return out, teams
+
+
+def get_boxscore(cur: duckdb.DuckDBPyConnection, match_id: int, quarter: int | None = None) -> Boxscore:
     match_row = match_repo.require_match(cur, match_id)
     match = _match_to_schema(match_row)
     players = match_repo.get_boxscore_players(cur, match_id)
     teams = {t["team_id"]: t for t in match_repo.get_boxscore_teams(cur, match_id)}
+    if quarter is not None:
+        players, teams = _quarter_box(cur, match_id, quarter, players)
 
     # parciales por cuarto a partir del marcador acumulado
     quarters, prev_h, prev_a = [], 0, 0
@@ -171,6 +205,7 @@ def get_boxscore(cur: duckdb.DuckDBPyConnection, match_id: int) -> Boxscore:
                 BoxscorePlayer(
                     player={"id": p["player_id"], "name": p.get("player_name")},
                     shirt_number=p.get("shirt_number"),
+                    position=p.get("position"),
                     is_starter=p.get("is_starter"),
                     played=bool(p.get("seconds")),
                     seconds=p.get("seconds"),

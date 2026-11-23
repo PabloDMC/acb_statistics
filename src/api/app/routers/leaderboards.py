@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 import duckdb
 from fastapi import APIRouter, Depends, Query
@@ -21,7 +21,16 @@ from app.schemas.leaderboard import (
     TeamLeaderboardEntry,
     TeamMetric,
 )
-from app.services import leaderboard_service
+from app.schemas.records import (
+    AssistKind,
+    AssistPairEntry,
+    ClutchLeaderboardEntry,
+    ClutchMetric,
+    GameRecordEntry,
+    GameRecordMetric,
+    TeamGameRecordMetric,
+)
+from app.services import leaderboard_service, records_service
 
 router = APIRouter(prefix="/leaderboards", tags=["leaderboards"])
 
@@ -103,3 +112,54 @@ def get_shooting_leaderboard(
 def get_available_shot_zones(cur: DbDep):
     """Valores reales de zona en tu warehouse, para montar un selector sin hardcodearlos."""
     return {"zones": leaderboard_service.available_shot_zones(cur)}
+
+
+@router.get("/clutch", response_model=list[ClutchLeaderboardEntry])
+def get_clutch_leaderboard(
+    cur: DbDep,
+    filters: FiltersDep,
+    page: PageDep,
+    metric: ClutchMetric = Query(default="points"),
+    min_attempts: int = Query(default=10, ge=0, description="Mínimo de intentos para los porcentajes"),
+):
+    """
+    Líderes en clutch (últimos 5 minutos del último cuarto y prórrogas con ±5 puntos), siempre en
+    TOTALES. Sin edition_id es el histórico de la liga; con edition_id, la temporada; con
+    team_id/club_id, el equipo. Solo partidos con jugada a jugada.
+    """
+    return records_service.clutch_leaderboard(cur, metric, filters, min_attempts, page)
+
+
+@router.get("/game-records", response_model=list[GameRecordEntry])
+def get_game_records(
+    cur: DbDep,
+    filters: FiltersDep,
+    page: PageDep,
+    target: Literal["players", "teams"] = Query(default="players"),
+    metric: str = Query(default="points", description="Ver GameRecordMetric (jugadores) o TeamGameRecordMetric (equipos)"),
+):
+    """
+    Mejores partidos individuales (o de equipo) en una estadística: récords históricos, de una
+    temporada o de un equipo según los filtros. Incluye rival, fecha y resultado.
+    """
+    allowed = TeamGameRecordMetric.__args__ if target == "teams" else GameRecordMetric.__args__
+    if metric not in allowed:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=422, detail=f"metric debe ser una de: {list(allowed)}")
+    return records_service.game_records(cur, target, metric, filters, page)
+
+
+@router.get("/assist-pairs", response_model=list[AssistPairEntry])
+def get_assist_pairs(
+    cur: DbDep,
+    filters: FiltersDep,
+    page: PageDep,
+    kind: AssistKind = Query(default="all", description="all, 2P, 3P o FT (asistencias que acaban en tiros libres)"),
+    sort: Literal["plays", "points"] = Query(default="plays", description="Por canastas asistidas o por puntos"),
+):
+    """
+    Parejas asistente -> anotador más prolíficas, en totales, con el desglose por tipo de canasta.
+    Solo partidos con jugada a jugada.
+    """
+    return records_service.assist_pairs(cur, filters, kind, sort, page)

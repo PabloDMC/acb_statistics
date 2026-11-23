@@ -103,8 +103,13 @@ class PlayerTotals(BaseModel):
 class PlayerGameLogEntry(BaseModel):
     match_id: int
     context: CompetitionContext
+    date: str | None = None
+    round: int | None = None
+    team: NamedRef | None = None
     opponent: NamedRef | None = None
     is_home: bool | None = None
+    score: str | None = None  # "81-71", primero su equipo
+    result: str | None = None  # "V" / "D"
 
     seconds: int | None = None
     points: float | None = None

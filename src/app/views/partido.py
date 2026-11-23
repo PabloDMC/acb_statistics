@@ -75,7 +75,8 @@ def _team_table(team: dict) -> pd.DataFrame:
         rows.append({
             "#": p.get("shirt_number"),
             "Jugador": ("* " if p.get("is_starter") else "") + (p["player"]["name"] or ""),
-            "Min": p.get("minutes") if played else "No jugó",
+            "Pos.": p.get("position"),
+            "Min": p.get("minutes") if played else "–",
             "Pts": s["points"] if played else None,
             "TC": f"{s['field_goals_made']}/{s['field_goals_attempted']}" if played else "",
             "T2": f"{s['two_pointers_made']}/{s['two_pointers_attempted']}" if played else "",
@@ -95,7 +96,7 @@ def _team_table(team: dict) -> pd.DataFrame:
         })
     t = team["totals"]
     rows.append({
-        "#": "", "Jugador": "Total equipo", "Min": "",
+        "#": "", "Jugador": "Total equipo", "Pos.": "", "Min": "",
         "Pts": t.get("points"),
         "TC": f"{t.get('field_goals_made')}/{t.get('field_goals_attempted')}",
         "T2": f"{t.get('two_pointers_made')}/{t.get('two_pointers_attempted')}",
@@ -109,14 +110,23 @@ def _team_table(team: dict) -> pd.DataFrame:
 
 
 if section == "Boxscore":
+    q_opts = [0, *[q["quarter"] for q in box["quarters"]]]
+    q_sel = st.segmented_control(
+        "Periodo", options=q_opts, default=0, key=f"box_q_{match_id}",
+        format_func=lambda q: "Partido" if q == 0 else _qname(q),
+    ) or 0
+    shown = box if not q_sel else api.get(f"/matches/{match_id}/boxscore", quarter=q_sel)
     for side in ("home", "away"):
-        team = box[side]
+        team = shown[side]
         st.markdown(f"**{team['team']['name']}**" + (f" · Entrenador: {team['coach']}" if team.get("coach") else ""))
         df = _team_table(team)
         row = components.selectable_table(df.drop(columns="_id"), key=f"box_{side}_{match_id}", height=35 * len(df) + 38)
         if row is not None and pd.notna(df.iloc[row]["_id"]):
             nav.goto("jugador", id=int(df.iloc[row]["_id"]))
-    st.caption("* titular. Los totales de equipo incluyen rebotes y pérdidas de equipo. Pulsa un jugador para ver su página.")
+    st.caption("Con asterisco, los titulares. Pulsa un jugador para ver su página. "
+               + ("Los totales de equipo incluyen rebotes y pérdidas de equipo." if not q_sel else
+                  "Por cuarto, desde la jugada a jugada: sin valoración y los totales son la suma de los jugadores "
+                  "(sin rebotes ni pérdidas de equipo)."))
 
 # ---------------------------------------------------------------------------
 # Jugada a jugada
@@ -215,6 +225,14 @@ if section == "Tiro":
     ) or "home"
     mode = c2.segmented_control("Vista", options=["Puntos", "Hexágonos"], default="Puntos", key=f"shot_mode_{match_id}") or "Puntos"
     shots = api.get(f"/matches/{match_id}/shots", team_id=m[f"{side}_team"]["id"]) or []
+    c3, c4 = st.columns(2)
+    players_in = sorted({(s["player"]["id"], s["player"]["name"] or "") for s in shots}, key=lambda t: t[1])
+    pl = c3.selectbox("Jugador", options=[0, *[p for p, _ in players_in]], key=f"shot_pl_{match_id}_{side}",
+                      format_func=lambda p: "Todos" if p == 0 else dict(players_in).get(p, str(p)))
+    quarters_in = sorted({s["quarter"] for s in shots if s.get("quarter")})
+    qq = c4.selectbox("Periodo", options=[0, *quarters_in], key=f"shot_q_{match_id}_{side}",
+                      format_func=lambda q: "Partido" if q == 0 else _qname(q))
+    shots = [s for s in shots if (not pl or s["player"]["id"] == pl) and (not qq or s.get("quarter") == qq)]
     if not shots:
         st.info("Sin tiros registrados.")
     else:
@@ -224,3 +242,6 @@ if section == "Tiro":
             league = {z["zone_id"]: z["pct"] for z in (api.get("/league/shot-zones", edition_id=ctx["edition"]["id"]) or [])}
             fig = charts.shot_hexes(shots, league)
         st.plotly_chart(fig, use_container_width=True)
+        made = sum(1 for s in shots if s["made"])
+        st.caption(f"{len(shots)} tiros de campo, {made} anotados ({100 * made / len(shots):.0f}%). "
+                   "En «Hexágonos», el color compara el acierto en cada zona con la media de la liga en la temporada.")

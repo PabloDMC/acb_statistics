@@ -44,6 +44,10 @@ class ShotEvent(BaseModel):
     is_clutch: bool | None = None
     quarter: int | None = None
     seconds_remaining: int | None = None
+    # contexto, para el detalle al pasar el ratón
+    date: str | None = None
+    opponent: NamedRef | None = None
+    score: str | None = None  # marcador tras el tiro, primero su equipo
 
 
 class LineupStint(BaseModel):
@@ -70,6 +74,7 @@ class QuarterScore(BaseModel):
 class BoxscorePlayer(BaseModel):
     player: NamedRef
     shirt_number: str | None = None
+    position: str | None = None
     is_starter: bool | None = None
     played: bool  # False = convocado sin jugar (0:00)
     seconds: int | None = None

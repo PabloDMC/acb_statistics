@@ -74,3 +74,51 @@ def player_names_batch(
     if edition_id is not None and missing:
         result.update(player_names_batch(cur, missing, None))
     return result
+
+
+def match_info_batch(cur: duckdb.DuckDBPyConnection, match_ids: list[int]) -> dict[int, dict]:
+    """Datos básicos de varios partidos (fecha, temporada, competición, jornada, equipos y marcador)."""
+    ids = [i for i in dict.fromkeys(match_ids) if i is not None]
+    if not ids:
+        return {}
+    placeholders = ",".join("?" for _ in ids)
+    cur.execute(
+        f"""
+        SELECT
+            m.match_id, m.match_start_time AS date, e.season_name, c.competition_name, m.round_number,
+            m.home_team_id, ht.full_name AS home_team_name, m.away_team_id, at_.full_name AS away_team_name,
+            m.home_score, m.away_score
+        FROM main_marts.dim_matches m
+        LEFT JOIN main_marts.dim_editions e ON e.edition_id = m.edition_id
+        LEFT JOIN main_marts.dim_competitions c ON c.competition_id = m.competition_id
+        LEFT JOIN (SELECT team_id, any_value(full_name) AS full_name FROM main_marts.dim_teams GROUP BY team_id) ht
+            ON ht.team_id = m.home_team_id
+        LEFT JOIN (SELECT team_id, any_value(full_name) AS full_name FROM main_marts.dim_teams GROUP BY team_id) at_
+            ON at_.team_id = m.away_team_id
+        WHERE m.match_id IN ({placeholders})
+        """,
+        ids,
+    )
+    return {r["match_id"]: r for r in cursor_to_dicts(cur)}
+
+
+def match_context_for_team(info: dict | None, team_id: int | None) -> dict:
+    """Campos de contexto de un partido vistos desde un equipo: rival, marcador y resultado."""
+    if not info:
+        return {}
+    home = info["home_team_id"] == team_id
+    own, opp = (info["home_score"], info["away_score"]) if home else (info["away_score"], info["home_score"])
+    date = info.get("date")
+    return {
+        "date": date[:10] if isinstance(date, str) else (date.isoformat()[:10] if date else None),
+        "season": info.get("season_name"),
+        "competition": info.get("competition_name"),
+        "round": info.get("round_number"),
+        "team": {"id": team_id, "name": info["home_team_name"] if home else info["away_team_name"]},
+        "opponent": {
+            "id": info["away_team_id"] if home else info["home_team_id"],
+            "name": info["away_team_name"] if home else info["home_team_name"],
+        },
+        "score": f"{own}-{opp}" if own is not None and opp is not None else None,
+        "result": None if own is None or opp is None else ("V" if own > opp else "D"),
+    }

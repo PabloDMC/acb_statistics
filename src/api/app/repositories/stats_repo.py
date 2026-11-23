@@ -128,7 +128,7 @@ def player_stats(
     sql = f"""
         SELECT * FROM (
             SELECT
-                t.player_id, trim(t.player_name) AS name,
+                t.player_id, trim(t.player_name) AS name, t.player_game_role AS position,
                 t.team_id, t.team_name, t.club_id, t.club_name,
                 t.edition_id, e.season_name AS edition_name,
                 t.competition_id, c.competition_name, t.competition_phase,

@@ -13,6 +13,7 @@ import streamlit as st
 PAGES = {
     "inicio": st.Page("views/inicio.py", title="Inicio", icon=":material/home:", default=True),
     "temporada": st.Page("views/temporada.py", title="Temporada", icon=":material/leaderboard:", url_path="temporada"),
+    "lideres": st.Page("views/lideres.py", title="Líderes y récords", icon=":material/emoji_events:", url_path="lideres"),
     "jugador": st.Page("views/jugador.py", title="Jugador", icon=":material/person:", url_path="jugador"),
     "equipo": st.Page("views/equipo.py", title="Equipo", icon=":material/groups:", url_path="equipo"),
     "partido": st.Page("views/partido.py", title="Partido", icon=":material/sports_basketball:", url_path="partido"),

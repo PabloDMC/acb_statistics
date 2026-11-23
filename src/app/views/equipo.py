@@ -6,6 +6,7 @@ import streamlit as st
 import api
 import charts
 import components
+import leaders
 import nav
 import tables
 
@@ -45,7 +46,7 @@ if history:
         nav.goto("equipo", id=chosen)
 
 section = components.sections(
-    ['Plantilla', 'Calendario', 'Estadísticas', 'Tiro', 'Rotaciones', 'Quintetos'], key="tm_section"
+    ['Plantilla', 'Calendario', 'Estadísticas', 'Tiro', 'Rotaciones', 'Quintetos', 'Líderes'], key="tm_section"
 )
 
 # ---------------------------------------------------------------------------
@@ -62,6 +63,7 @@ if section == "Plantilla":
     else:
         base = {
             "Jugador": lambda it: it["player"]["name"],
+            "Pos.": lambda it: it.get("position"),
             "Fase": lambda it: it["context"]["competition_phase"],
             "PJ": lambda it: it["games"],
             "Tit": lambda it: it.get("games_started"),
@@ -194,8 +196,9 @@ if section == "Tiro":
         fig = charts.shot_hexes(shots, league) if mode == "Hexágonos" else charts.shot_points(shots)
         st.plotly_chart(fig, use_container_width=True)
         made = sum(1 for s in shots if s["made"])
-        st.caption(f"{len(shots)} tiros de campo, {made} anotados ({100 * made / len(shots):.1f}%). "
-                   "Hexágonos: tamaño = volumen de tiro; color = acierto frente a la media de la liga en esa zona.")
+        st.caption(f"{len(shots)} tiros de campo, {made} anotados ({100 * made / len(shots):.1f}%). " + "Hexágonos: tamaño = volumen de tiro en ese punto; color = acierto en esa zona frente a la media de la liga "
+                   "en la temporada (todas las competiciones). Con «solo clutch» se comparan los tiros en clutch con esa "
+                   "misma media general.")
 
 # ---------------------------------------------------------------------------
 # Mapa de rotaciones de la temporada
@@ -211,3 +214,18 @@ if section == "Rotaciones":
         st.plotly_chart(charts.rotation_heatmap(rot), use_container_width=True)
         st.caption(f"Porcentaje de los {rot['team_games']} partidos en los que cada jugador estuvo en pista en cada "
                    "minuto (sin prórrogas). Las líneas marcan el final de cada cuarto.")
+
+
+# ---------------------------------------------------------------------------
+# Líderes y récords del equipo (o de toda la historia del club)
+# ---------------------------------------------------------------------------
+if section == "Líderes":
+    scope = st.segmented_control(
+        "Ámbito", options=["team", "club"], default="team", key=f"tm_lead_scope_{team_id}",
+        format_func=lambda s: f"Esta temporada ({edition['name']})" if s == "team" else f"Historia del club ({club.get('name')})",
+    ) or "team"
+    if scope == "team" or not club.get("id"):
+        leaders.render({"team_id": team_id}, key=f"tm_lead_{team_id}", historic=False)
+    else:
+        leaders.render({"club_id": club["id"], "competition_id": first["context"]["competition"]["id"]},
+                       key=f"club_lead_{club['id']}", historic=True)

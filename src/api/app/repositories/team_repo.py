@@ -258,12 +258,14 @@ def get_game_highs(
     fb.add_competition_filters(filters)
 
     select_parts = [
-        f"MAX(g.{col}) AS {name}_value, arg_max(g.match_id, g.{col}) AS {name}_match_id"
+        f"MAX(g.{col}) AS {name}_value, arg_max(g.match_id, g.{col}) AS {name}_match_id, "
+        f"arg_max(g.team_id, g.{col}) AS {name}_team_id"
         for name, col in _TEAM_GAME_HIGH_STATS.items()
     ]
     select_parts.append(
         "MAX(g.points - g.opponent_points) AS margin_value, "
-        "arg_max(g.match_id, g.points - g.opponent_points) AS margin_match_id"
+        "arg_max(g.match_id, g.points - g.opponent_points) AS margin_match_id, "
+        "arg_max(g.team_id, g.points - g.opponent_points) AS margin_team_id"
     )
     cur.execute(
         f"SELECT {', '.join(select_parts)} FROM main_marts.fact_team_games g {fb.where_sql()}",
@@ -311,7 +313,9 @@ def get_shots(
             s.shot_zone_range AS range,
             s.is_clutch,
             s.quarter,
-            s.seconds_remaining
+            s.seconds_remaining,
+            s.match_id AS shot_match_id,
+            s.score_team, s.score_opp
         FROM main_marts.fact_shots s
         {fb.where_sql()}
         ORDER BY s.match_id, s.quarter, s.seconds_remaining DESC

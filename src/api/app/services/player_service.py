@@ -205,8 +205,14 @@ def get_game_log(
         PlayerGameLogEntry(
             match_id=row["match_id"],
             context=competition_context(row),
+            date=(row.get("date") or "")[:10] or None,
+            round=row.get("round_number"),
+            team=named_ref(row, "team_id", "team_name"),
             opponent=named_ref(row, "opponent_team_id", "opponent_team_name"),
             is_home=row.get("is_home"),
+            score=(f"{row['team_points']}-{row['opponent_points']}"
+                   if row.get("team_points") is not None and row.get("opponent_points") is not None else None),
+            result=None if row.get("is_win") is None else ("V" if row["is_win"] else "D"),
             seconds=row.get("seconds"),
             points=row.get("points"),
             assists=row.get("assists"),
@@ -270,8 +276,9 @@ def get_shots(
     """
     basic = player_repo.require_basic_info(cur, player_id)
     rows = player_repo.get_shots(cur, player_id, filters, clutch_only)
+    infos = common_repo.match_info_batch(cur, [r.get("match_id") for r in rows])
     return [
-        match_service.shot_from_row({**row, "player_id": player_id}, basic.get("name"))
+        match_service.shot_from_row({**row, "player_id": player_id}, basic.get("name"), infos)
         for row in rows
     ]
 
@@ -284,8 +291,13 @@ def get_game_highs(
     # sin partidos en esos filtros: 404 como el perfil, no un 200 con todo a null
     if not row or all(v is None for k, v in row.items() if k.endswith("_value")):
         raise ResourceNotFoundError("player_game_highs_for_filters", {"player_id": player_id, **filters.model_dump()})
+    infos = common_repo.match_info_batch(cur, [row.get(f"{n}_match_id") for n in PlayerGameHighs.model_fields])
     return PlayerGameHighs(**{
-        name: StatHigh(value=row.get(f"{name}_value"), match_id=row.get(f"{name}_match_id"))
+        name: StatHigh(
+            value=row.get(f"{name}_value"),
+            match_id=row.get(f"{name}_match_id"),
+            **common_repo.match_context_for_team(infos.get(row.get(f"{name}_match_id")), row.get(f"{name}_team_id")),
+        )
         for name in PlayerGameHighs.model_fields
     })
 
