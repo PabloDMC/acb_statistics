@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 
 import api
+import charts
 import components
 import nav
 import tables
@@ -51,15 +52,13 @@ edition_id = st.selectbox(
 )
 ed_filter = None if edition_id == CAREER else edition_id
 
-tab_seasons, tab_games, tab_splits, tab_shoot, tab_impact, tab_highs = st.tabs(
-    ["Temporadas", "Partido a partido", "Splits", "Tiro", "Impacto y quintetos", "Máximos"]
-)
+section = components.sections(['Temporadas', 'Partido a partido', 'Splits', 'Tiro', 'Impacto y quintetos', 'Máximos'], key="pl_section")
 
 # ---------------------------------------------------------------------------
 # Temporadas (como la tabla principal de Basketball Reference)
 # ---------------------------------------------------------------------------
 P_PER = {"per_game": "Por partido", "total": "Totales", "per_36": "Por 36 min", "per_100": "Por 100 posesiones"}
-with tab_seasons:
+if section == "Temporadas":
     c1, c2 = st.columns([2, 2])
     per = c1.segmented_control("Escala", options=list(P_PER), format_func=P_PER.get, default="per_game", key="pl_s_per") or "per_game"
     group = c2.segmented_control("Columnas", options=list(tables.PLAYER_GROUPS), default="Básicas", key="pl_s_group") or "Básicas"
@@ -82,7 +81,7 @@ with tab_seasons:
 # ---------------------------------------------------------------------------
 # Partido a partido
 # ---------------------------------------------------------------------------
-with tab_games:
+if section == "Partido a partido":
     games = api.get_all(f"/players/{player_id}/games", edition_id=ed_filter, sort="-match_id")
     if not games:
         st.info("Sin partidos.")
@@ -118,7 +117,7 @@ with tab_games:
 # ---------------------------------------------------------------------------
 SPLIT_NAMES = {"location": "Local / visitante", "result": "Resultado", "role": "Titular / suplente",
                "month": "Mes", "opponent": "Rival", "clutch": "Clutch"}
-with tab_splits:
+if section == "Splits":
     splits = api.get(f"/players/{player_id}/splits", edition_id=ed_filter) or []
     if not splits:
         st.info("Sin datos.")
@@ -159,7 +158,7 @@ with tab_splits:
 # ---------------------------------------------------------------------------
 # Tiro: perfil y zonas frente a la media de la liga
 # ---------------------------------------------------------------------------
-with tab_shoot:
+if section == "Tiro":
     shooting = api.get(f"/players/{player_id}/shooting", edition_id=ed_filter) or []
     if not shooting:
         st.info("Sin datos de tiro.")
@@ -198,12 +197,29 @@ with tab_shoot:
                 column_config={c: st.column_config.NumberColumn(c, format="%.1f")
                                for c in ("%", "% liga", "Dif. vs liga", "Frecuencia %")},
             )
-        st.caption("La carta de tiro llega en el paso 4 de la hoja de ruta.")
+        c1, c2 = st.columns([3, 1])
+        mode = c1.segmented_control("Carta de tiro", options=["Hexágonos", "Puntos"], default="Hexágonos",
+                                    key=f"pl_shot_mode_{player_id}") or "Hexágonos"
+        clutch = c2.toggle("Solo clutch", key=f"pl_shot_clutch_{player_id}")
+        shots = api.get(
+            f"/players/{player_id}/shots",
+            edition_id=s["context"]["edition"]["id"], competition_id=s["context"]["competition"]["id"],
+            competition_phase=s["context"]["competition_phase"], team_id=s["club_team"]["team"]["id"],
+            clutch_only=clutch,
+        ) or []
+        if shots:
+            league_pct = {zid: z.get("pct") for zid, z in league.items()}
+            fig = charts.shot_hexes(shots, league_pct) if mode == "Hexágonos" else charts.shot_points(shots)
+            st.plotly_chart(fig, use_container_width=True)
+            st.caption("Hexágonos: tamaño = volumen de tiro; color = acierto frente a la media de la liga en esa zona "
+                       "(rojo, mejor; azul, peor).")
+        else:
+            st.caption("Sin tiros con coordenadas en este contexto.")
 
 # ---------------------------------------------------------------------------
 # Impacto y quintetos
 # ---------------------------------------------------------------------------
-with tab_impact:
+if section == "Impacto y quintetos":
     impact = api.get(f"/players/{player_id}/impact", edition_id=ed_filter) or []
     if impact:
         df = pd.DataFrame([
@@ -251,7 +267,7 @@ HIGH_NAMES = {"points": "Puntos", "rebounds": "Rebotes", "assists": "Asistencias
               "blocks": "Tapones", "three_pointers_made": "Triples", "field_goals_made": "Tiros de campo",
               "free_throws_made": "Tiros libres", "plus_minus": "+/-", "rating": "Valoración",
               "seconds_played": "Minutos"}
-with tab_highs:
+if section == "Máximos":
     highs = api.get(f"/players/{player_id}/game-highs", edition_id=ed_filter)
     if not highs:
         st.info("Sin partidos.")

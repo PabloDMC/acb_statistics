@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 
 import api
+import charts
 import components
 import nav
 import tables
@@ -43,13 +44,15 @@ if history:
     if chosen != team_id:
         nav.goto("equipo", id=chosen)
 
-tab_roster, tab_games, tab_stats, tab_lineups = st.tabs(["Plantilla", "Calendario", "Estadísticas", "Quintetos"])
+section = components.sections(
+    ['Plantilla', 'Calendario', 'Estadísticas', 'Tiro', 'Rotaciones', 'Quintetos'], key="tm_section"
+)
 
 # ---------------------------------------------------------------------------
 # Plantilla con estadísticas
 # ---------------------------------------------------------------------------
 P_PER = {"per_game": "Por partido", "total": "Totales", "per_36": "Por 36 min", "per_100": "Por 100 posesiones"}
-with tab_roster:
+if section == "Plantilla":
     c1, c2 = st.columns(2)
     per = c1.segmented_control("Escala", options=list(P_PER), format_func=P_PER.get, default="per_game", key="tm_r_per") or "per_game"
     group = c2.segmented_control("Columnas", options=list(tables.PLAYER_GROUPS), default="Básicas", key="tm_r_group") or "Básicas"
@@ -77,7 +80,7 @@ with tab_roster:
 # ---------------------------------------------------------------------------
 # Calendario y resultados
 # ---------------------------------------------------------------------------
-with tab_games:
+if section == "Calendario":
     matches = api.get_all("/matches", team_id=team_id, sort="date")
     if not matches:
         st.info("Sin partidos.")
@@ -106,7 +109,7 @@ with tab_games:
 # ---------------------------------------------------------------------------
 # Estadísticas del equipo y del rival
 # ---------------------------------------------------------------------------
-with tab_stats:
+if section == "Estadísticas":
     for r in season_rows:
         st.markdown(f"**{r['context']['competition']['name']} · {r['context']['competition_phase']}** "
                     f"({r['games']} partidos, {r['wins']}-{r['losses']})")
@@ -147,7 +150,7 @@ with tab_stats:
 # Quintetos y combinaciones
 # ---------------------------------------------------------------------------
 SIZES = {5: "Quintetos", 4: "Cuartetos", 3: "Tríos", 2: "Parejas"}
-with tab_lineups:
+if section == "Quintetos":
     c1, c2 = st.columns([3, 1])
     size = c1.segmented_control("Combinación", options=list(SIZES), format_func=SIZES.get, default=5, key="tm_l_size") or 5
     min_poss = c2.number_input("Mín. posesiones", min_value=0, value=50, step=10, key="tm_l_min")
@@ -156,6 +159,7 @@ with tab_lineups:
     if not combos:
         st.info("Sin combinaciones con ese mínimo de posesiones.")
     else:
+        st.plotly_chart(charts.lineup_scatter(combos), use_container_width=True)
         df = pd.DataFrame([
             {
                 "Jugadores": ", ".join(p["name"] or str(p["id"]) for p in c["players"]),
@@ -170,4 +174,40 @@ with tab_lineups:
         ])
         st.dataframe(df, hide_index=True, use_container_width=True, height=min(35 * len(df) + 38, 700),
                      column_config={k: st.column_config.NumberColumn(k, format="%.1f") for k in ("Min", "ORtg", "DRtg", "Net")})
-        st.caption("Ratings por 100 posesiones. Solo partidos con jugada a jugada. Rotaciones y cartas de tiro: paso 4.")
+        st.caption("Ratings por 100 posesiones. Solo partidos con jugada a jugada.")
+
+
+# ---------------------------------------------------------------------------
+# Carta de tiro del equipo y de sus rivales
+# ---------------------------------------------------------------------------
+if section == "Tiro":
+    c1, c2, c3 = st.columns([2, 2, 1])
+    side = c1.segmented_control("Tiros", options=["own", "opponent"], default="own", key=f"tm_shot_side_{team_id}",
+                                format_func=lambda s: "Del equipo" if s == "own" else "De los rivales") or "own"
+    mode = c2.segmented_control("Vista", options=["Hexágonos", "Puntos"], default="Hexágonos", key=f"tm_shot_mode_{team_id}") or "Hexágonos"
+    clutch = c3.toggle("Solo clutch", key=f"tm_shot_clutch_{team_id}")
+    shots = api.get(f"/teams/{team_id}/shots", side=side, clutch_only=clutch) or []
+    if not shots:
+        st.info("Sin tiros registrados.")
+    else:
+        league = {z["zone_id"]: z["pct"] for z in (api.get("/league/shot-zones", edition_id=edition["id"]) or [])}
+        fig = charts.shot_hexes(shots, league) if mode == "Hexágonos" else charts.shot_points(shots)
+        st.plotly_chart(fig, use_container_width=True)
+        made = sum(1 for s in shots if s["made"])
+        st.caption(f"{len(shots)} tiros de campo, {made} anotados ({100 * made / len(shots):.1f}%). "
+                   "Hexágonos: tamaño = volumen de tiro; color = acierto frente a la media de la liga en esa zona.")
+
+# ---------------------------------------------------------------------------
+# Mapa de rotaciones de la temporada
+# ---------------------------------------------------------------------------
+if section == "Rotaciones":
+    phases = [r["context"]["competition_phase"] for r in season_rows]
+    phase = st.segmented_control("Fase", options=["__all__", *phases], default="__all__", key=f"tm_rot_phase_{team_id}",
+                                 format_func=lambda p: "Todas" if p == "__all__" else p) or "__all__"
+    rot = api.get(f"/teams/{team_id}/rotations", competition_phase=None if phase == "__all__" else phase)
+    if not rot:
+        st.info("Sin datos de rotaciones (hace falta la jugada a jugada).")
+    else:
+        st.plotly_chart(charts.rotation_heatmap(rot), use_container_width=True)
+        st.caption(f"Porcentaje de los {rot['team_games']} partidos en los que cada jugador estuvo en pista en cada "
+                   "minuto (sin prórrogas). Las líneas marcan el final de cada cuarto.")

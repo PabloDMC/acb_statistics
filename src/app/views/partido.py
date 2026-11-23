@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 
 import api
+import charts
 import components
 import nav
 
@@ -59,7 +60,9 @@ if box["quarters"]:
     ])
     st.dataframe(qdf, hide_index=True)
 
-tab_box, tab_pbp, tab_lineups = st.tabs(["Boxscore", "Jugada a jugada", "Quintetos"])
+section = components.sections(
+    ['Boxscore', 'Evolución', 'Jugada a jugada', 'Rotaciones', 'Tiro', 'Quintetos'], key="mt_section"
+)
 
 # ---------------------------------------------------------------------------
 # Boxscore
@@ -105,7 +108,7 @@ def _team_table(team: dict) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-with tab_box:
+if section == "Boxscore":
     for side in ("home", "away"):
         team = box[side]
         st.markdown(f"**{team['team']['name']}**" + (f" · Entrenador: {team['coach']}" if team.get("coach") else ""))
@@ -118,7 +121,7 @@ with tab_box:
 # ---------------------------------------------------------------------------
 # Jugada a jugada
 # ---------------------------------------------------------------------------
-with tab_pbp:
+if section == "Jugada a jugada":
     quarters = [q["quarter"] for q in box["quarters"]] or [1, 2, 3, 4]
     qsel = st.segmented_control(
         "Cuarto", options=[0, *quarters], default=0, key=f"pbp_q_{match_id}",
@@ -145,7 +148,7 @@ with tab_pbp:
 # ---------------------------------------------------------------------------
 # Quintetos del partido
 # ---------------------------------------------------------------------------
-with tab_lineups:
+if section == "Quintetos":
     stints = api.get(f"/matches/{match_id}/lineups") or []
     if not stints:
         st.info("Este partido no tiene quintetos (falta la jugada a jugada).")
@@ -166,4 +169,58 @@ with tab_lineups:
         ]).sort_values(["Equipo", "Min"], ascending=[True, False])
         st.dataframe(df, hide_index=True, use_container_width=True,
                      column_config={"Min": st.column_config.NumberColumn("Min", format="%.1f")})
-        st.caption("Evolución del marcador, rotaciones y carta de tiro del partido: paso 4.")
+
+
+# ---------------------------------------------------------------------------
+# Evolución del marcador
+# ---------------------------------------------------------------------------
+if section == "Evolución":
+    events = api.get(f"/matches/{match_id}/play-by-play") or []
+    if not events:
+        st.info("Este partido no tiene jugada a jugada.")
+    else:
+        fig = charts.game_flow(events, m["home_team"]["name"], m["away_team"]["name"])
+        st.plotly_chart(fig, use_container_width=True)
+        margins = [(e["score_home"] or 0) - (e["score_away"] or 0) for e in events if e.get("score_home") is not None]
+        if margins:
+            c = st.columns(3)
+            c[0].metric(f"Máxima ventaja {m['home_team']['name']}", max(0, max(margins)))
+            c[1].metric(f"Máxima ventaja {m['away_team']['name']}", max(0, -min(margins)))
+            changes = sum(1 for a, b in zip(margins, margins[1:]) if a * b < 0)
+            c[2].metric("Cambios de líder", changes)
+
+# ---------------------------------------------------------------------------
+# Rotaciones del partido
+# ---------------------------------------------------------------------------
+if section == "Rotaciones":
+    stints = api.get(f"/matches/{match_id}/lineups") or []
+    if not stints:
+        st.info("Este partido no tiene quintetos (falta la jugada a jugada).")
+    else:
+        for side in ("home", "away"):
+            team = m[f"{side}_team"]
+            st.markdown(f"**{team['name']}**")
+            st.plotly_chart(charts.match_rotation(stints, team["id"]), use_container_width=True,
+                            key=f"rot_{side}_{match_id}")
+        st.caption("Oscuro = en pista. Sin prórrogas. Entre paréntesis, minutos jugados en los 40 minutos reglamentarios.")
+
+# ---------------------------------------------------------------------------
+# Carta de tiro del partido
+# ---------------------------------------------------------------------------
+if section == "Tiro":
+    c1, c2 = st.columns([2, 1])
+    side = c1.segmented_control(
+        "Equipo", options=["home", "away"], default="home", key=f"shot_side_{match_id}",
+        format_func=lambda s: m[f"{s}_team"]["name"],
+    ) or "home"
+    mode = c2.segmented_control("Vista", options=["Puntos", "Hexágonos"], default="Puntos", key=f"shot_mode_{match_id}") or "Puntos"
+    shots = api.get(f"/matches/{match_id}/shots", team_id=m[f"{side}_team"]["id"]) or []
+    if not shots:
+        st.info("Sin tiros registrados.")
+    else:
+        if mode == "Puntos":
+            fig = charts.shot_points(shots)
+        else:
+            league = {z["zone_id"]: z["pct"] for z in (api.get("/league/shot-zones", edition_id=ctx["edition"]["id"]) or [])}
+            fig = charts.shot_hexes(shots, league)
+        st.plotly_chart(fig, use_container_width=True)

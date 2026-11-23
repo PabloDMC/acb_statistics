@@ -65,3 +65,10 @@ def selectable_table(df: pd.DataFrame, key: str, column_config: dict | None = No
     )
     rows = event.selection.rows if event and event.selection else []
     return rows[0] if rows else None
+
+
+def sections(options: list[str], key: str) -> str:
+    """Selector de sección (en lugar de st.tabs): solo se ejecuta la sección elegida, así una
+    página con muchas secciones no hace todas sus llamadas a la API de golpe."""
+    choice = st.segmented_control(" ", options=options, default=options[0], key=key, label_visibility="collapsed")
+    return choice or options[0]
