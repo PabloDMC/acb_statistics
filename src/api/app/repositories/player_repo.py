@@ -216,6 +216,9 @@ def get_game_log(
             g.competition_phase,
             g.is_home,
             g.opponent_team_id, opp.full_name AS opponent_team_name,
+            g.team_id, g.team_name,
+            mm.match_start_time AS date, mm.round_number,
+            g.team_points, g.opponent_points, g.is_win,
 
             g.seconds, g.points, g.assists, g.total_rebounds AS rebounds,
             g.steals, g.turnovers, g.blocks, g.plus_minus, g.rating,
@@ -228,6 +231,7 @@ def get_game_log(
         LEFT JOIN main_marts.dim_competitions c ON c.competition_id = g.competition_id
         LEFT JOIN main_marts.dim_teams opp
             ON opp.team_id = g.opponent_team_id AND opp.edition_id = g.edition_id AND opp.competition_id = g.competition_id
+        LEFT JOIN main_marts.dim_matches mm ON mm.match_id = g.match_id
         {where_sql}
         ORDER BY g.{sort_col} {direction}
         {pagination_sql(page)}
@@ -473,7 +477,9 @@ def get_shots(
             s.shot_zone_range AS range,
             s.is_clutch,
             s.quarter,
-            s.seconds_remaining
+            s.seconds_remaining,
+            s.match_id AS shot_match_id,
+            s.score_team, s.score_opp
         FROM main_marts.fact_shots s
         {fb.where_sql()}
         ORDER BY s.match_id, s.quarter, s.seconds_remaining DESC
@@ -512,7 +518,8 @@ def get_game_highs(
     fb.add_competition_filters(filters)
 
     select_parts = [
-        f"MAX(g.{col}) AS {name}_value, arg_max(g.match_id, g.{col}) AS {name}_match_id"
+        f"MAX(g.{col}) AS {name}_value, arg_max(g.match_id, g.{col}) AS {name}_match_id, "
+        f"arg_max(g.team_id, g.{col}) AS {name}_team_id"
         for name, col in _GAME_HIGH_STATS.items()
     ]
     cur.execute(

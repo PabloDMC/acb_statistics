@@ -19,6 +19,7 @@ TeamStatsPer = Literal["total", "per_game", "per_100"]
 
 class PlayerStatsRow(BaseModel):
     player: NamedRef
+    position: str | None = None
     club_team: ClubTeamRef
     context: CompetitionContext
     games: int

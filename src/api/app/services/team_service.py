@@ -126,8 +126,13 @@ def get_game_highs(
     # sin partidos en esos filtros: 404 como el perfil, no un 200 con todo a null
     if not row or all(v is None for k, v in row.items() if k.endswith("_value")):
         raise ResourceNotFoundError("team_game_highs_for_filters", {"team_id": team_id, **filters.model_dump()})
+    infos = common_repo.match_info_batch(cur, [row.get(f"{n}_match_id") for n in TeamGameHighs.model_fields])
     return TeamGameHighs(**{
-        name: StatHigh(value=row.get(f"{name}_value"), match_id=row.get(f"{name}_match_id"))
+        name: StatHigh(
+            value=row.get(f"{name}_value"),
+            match_id=row.get(f"{name}_match_id"),
+            **common_repo.match_context_for_team(infos.get(row.get(f"{name}_match_id")), row.get(f"{name}_team_id")),
+        )
         for name in TeamGameHighs.model_fields
     })
 
@@ -143,7 +148,8 @@ def get_shots(
     rows = team_repo.get_shots(cur, team_id, side, competition_phase, clutch_only)
     ids = [r["player_id"] for r in rows if r.get("player_id") is not None]
     names = common_repo.player_names_batch(cur, ids, info.get("edition_id"))
-    return [match_service.shot_from_row(r, names.get(r.get("player_id"))) for r in rows]
+    infos = common_repo.match_info_batch(cur, [r.get("match_id") for r in rows])
+    return [match_service.shot_from_row(r, names.get(r.get("player_id")), infos) for r in rows]
 
 
 def get_rotations(

@@ -59,9 +59,14 @@ def get_match_lineups(match_id: int, cur: DbDep):
 
 
 @router.get("/{match_id}/boxscore", response_model=Boxscore)
-def get_match_boxscore(match_id: int, cur: DbDep):
-    """Boxscore completo: datos del partido, parciales por cuarto y, por equipo, la línea de cada jugador y los totales oficiales."""
-    return match_service.get_boxscore(cur, match_id)
+def get_match_boxscore(
+    match_id: int,
+    cur: DbDep,
+    quarter: int | None = Query(default=None, ge=1, description="Solo ese cuarto (5 = primera prórroga), desde la jugada a jugada"),
+):
+    """Boxscore completo: datos del partido, parciales por cuarto y, por equipo, la línea de cada
+    jugador y los totales oficiales. Con `quarter`, las líneas de ese cuarto (sin valoración)."""
+    return match_service.get_boxscore(cur, match_id, quarter)
 
 
 @router.get("/{match_id}/play-by-play", response_model=list[PlayByPlayEvent])

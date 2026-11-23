@@ -63,6 +63,23 @@ def court_figure(height: int = 520) -> go.Figure:
     return fig
 
 
+def _shot_text(s: dict) -> str:
+    q = s.get("quarter")
+    sec = s.get("seconds_remaining")
+    clock = f"{sec // 60:02d}:{sec % 60:02d}" if sec is not None else ""
+    period = (f"{q}º cuarto" if q <= 4 else f"Prórroga {q - 4}") if q else ""
+    parts = [
+        f"<b>{s['player']['name'] or ''}</b> · {'anotado' if s['made'] else 'fallado'} ({s.get('value')} pts)",
+        f"{s.get('zone') or ''} · {s.get('area') or ''} · {s.get('range') or ''}",
+        f"{period} {clock}" + (f" · marcador {s['score']}" if s.get("score") else ""),
+    ]
+    if s.get("opponent") or s.get("date"):
+        parts.append(f"vs {(s.get('opponent') or {}).get('name') or ''} · {s.get('date') or ''}")
+    if s.get("is_clutch"):
+        parts.append("Clutch")
+    return "<br>".join(parts)
+
+
 def shot_points(shots: list[dict], height: int = 520) -> go.Figure:
     """Cada tiro como un punto: anotados en verde, fallados como cruz roja."""
     fig = court_figure(height)
@@ -71,7 +88,7 @@ def shot_points(shots: list[dict], height: int = 520) -> go.Figure:
         fig.add_trace(go.Scattergl(
             x=[s["x"] for s in sel], y=[s["y"] for s in sel], mode="markers", name=f"{name} ({len(sel)})",
             marker=dict(color=color, symbol=symbol, size=7, opacity=0.7, line=dict(width=0)),
-            text=[f"{s['player']['name'] or ''} · {s.get('zone') or ''}" for s in sel],
+            text=[_shot_text(s) for s in sel],
             hovertemplate="%{text}<extra></extra>",
         ))
     return fig
@@ -94,6 +111,19 @@ def _hex_bin(xs: np.ndarray, ys: np.ndarray, size: float) -> tuple[np.ndarray, n
     return rx.astype(int), rz.astype(int)
 
 
+# Escala de tu función original (src/shots.py): 5 colores, cortes en ±2, ±7 y ±15 puntos
+ZONE_COLORS = ["#2b7cb6", "#abd9e9", "#f2f2f2", "#fdaf61", "#d7191c"]
+ZONE_BOUNDS = [-7, -2, 2, 7]
+ZONE_LABELS = ["< −7", "−7 a −2", "±2", "+2 a +7", "> +7"]
+
+
+def _bucket(diff: float) -> int:
+    for i, b in enumerate(ZONE_BOUNDS):
+        if diff < b:
+            return i
+    return len(ZONE_BOUNDS)
+
+
 def shot_hexes(
     shots: list[dict],
     league_pct_by_zone: dict[int, float],
@@ -101,51 +131,65 @@ def shot_hexes(
     height: int = 520,
 ) -> go.Figure:
     """
-    Carta de tiro por hexágonos (estilo Kirk Goldsberry): el tamaño es el volumen de tiro de esa
-    zona de la pista y el color, el acierto frente a la media de la liga en la misma zona
-    (rojo = mejor, azul = peor).
+    Carta de tiro por zonas (como la función original de src/shots.py): cada hexágono está donde
+    se tiró, su tamaño (tres escalones) es el volumen de tiro de ese punto y su color, el acierto
+    del jugador EN SU ZONA frente a la media de la liga en esa zona. Así el color no depende de
+    los pocos tiros de un hexágono, sino de toda la zona.
     """
     fig = court_figure(height)
-    # solo media pista útil (los tiros desde más lejos son lanzamientos desesperados)
-    shots = [s for s in shots if s["y"] <= Y_RANGE[1] - 600]
+    shots = [s for s in shots if s["y"] <= Y_RANGE[1] - 600 and s.get("zone_id") is not None]
     if not shots:
         return fig
-    xs = np.array([s["x"] for s in shots], dtype=float)
-    ys = np.array([s["y"] for s in shots], dtype=float)
+
+    # acierto del jugador por zona y diferencia con la liga
+    zone_tot: dict[int, list[int]] = {}
+    for s in shots:
+        z = zone_tot.setdefault(s["zone_id"], [0, 0])
+        z[0] += 1
+        z[1] += 1 if s["made"] else 0
+    zone_pct = {z: m / n for z, (n, m) in zone_tot.items()}
+    zone_name = {s["zone_id"]: f"{s.get('zone') or ''} · {s.get('area') or ''}" for s in shots}
+
+    # los triples frontales (zonas 10-12) se separan un poco de la línea, como en la función original
+    xs = np.array([s["x"] * (1.12 if s["zone_id"] in (10, 11, 12) else 1) for s in shots], dtype=float)
+    ys = np.array([s["y"] * (1.12 if s["zone_id"] in (10, 11, 12) else 1) for s in shots], dtype=float)
     q, r = _hex_bin(xs, ys, hex_size)
     cells: dict[tuple[int, int], list[dict]] = {}
     for qi, ri, s in zip(q, r, shots):
         cells.setdefault((qi, ri), []).append(s)
 
-    cx, cy, size, color, text = [], [], [], [], []
-    # tamaño relativo al percentil 90: si no, el hexágono del aro hace diminutos a todos los demás
     counts = sorted(len(v) for v in cells.values())
-    ref_n = max(1, counts[int(0.9 * (len(counts) - 1))])
-    # hexágonos con muy pocos tiros: ruido (un tiro suelto pinta un hexágono rojo o azul intenso)
-    # (con muestras pequeñas, un jugador en pocos partidos, se dejan todos)
-    min_n = 1 if len(shots) < 300 else max(2, round(0.002 * len(shots)))
-    for (qi, ri), cell in cells.items():
-        n = len(cell)
-        if n < min_n:
-            continue
-        made = sum(1 for s in cell if s["made"])
-        league = [league_pct_by_zone.get(s.get("zone_id")) for s in cell]
-        league = [v for v in league if v is not None]
-        lg = sum(league) / len(league) if league else None
-        pct = made / n
-        cx.append(hex_size * math.sqrt(3) * (qi + ri / 2))
-        cy.append(hex_size * 1.5 * ri)
-        size.append(7 + 17 * min(1.0, math.sqrt(n / ref_n)))
-        color.append(None if lg is None else 100 * (pct - lg))
-        text.append(f"{made}/{n} ({100 * pct:.0f}%)" + (f" · liga {100 * lg:.0f}%" if lg is not None else ""))
+    p33 = counts[int(0.33 * (len(counts) - 1))]
+    p66 = counts[int(0.66 * (len(counts) - 1))]
 
-    fig.add_trace(go.Scatter(
-        x=cx, y=cy, mode="markers", showlegend=False,
-        marker=dict(symbol="hexagon", size=size, color=color, colorscale="RdBu", reversescale=True,
-                    cmin=-15, cmax=15, line=dict(width=0.5, color="white"),
-                    colorbar=dict(title="vs liga<br>(puntos %)", thickness=12, len=0.6)),
-        text=text, hovertemplate="%{text}<extra></extra>",
-    ))
+    buckets: dict[int, dict[str, list]] = {i: {"x": [], "y": [], "size": [], "text": []} for i in range(5)}
+    for (qi, ri), cell in cells.items():
+        diffs = [100 * (zone_pct[s["zone_id"]] - league_pct_by_zone[s["zone_id"]])
+                 for s in cell if league_pct_by_zone.get(s["zone_id"]) is not None]
+        if not diffs:
+            continue
+        diff = sum(diffs) / len(diffs)
+        n = len(cell)
+        scale = 0.4 if n < p33 else (1.0 if n > p66 else 0.7)
+        zid = max({s["zone_id"] for s in cell}, key=lambda z: sum(1 for s in cell if s["zone_id"] == z))
+        b = buckets[_bucket(diff)]
+        b["x"].append(hex_size * math.sqrt(3) * (qi + ri / 2))
+        b["y"].append(hex_size * 1.5 * ri)
+        b["size"].append(26 * scale)
+        lg = league_pct_by_zone.get(zid)
+        b["text"].append(
+            f"{zone_name[zid]}<br>En la zona: {100 * zone_pct[zid]:.0f}% ({zone_tot[zid][1]}/{zone_tot[zid][0]})"
+            + (f" · liga {100 * lg:.0f}%" if lg is not None else "")
+            + f"<br>Tiros en este punto: {n}"
+        )
+    for i, b in buckets.items():
+        fig.add_trace(go.Scatter(
+            x=b["x"] or [None], y=b["y"] or [None], mode="markers", name=ZONE_LABELS[i],
+            marker=dict(symbol="hexagon", size=b["size"] or [10], color=ZONE_COLORS[i],
+                        line=dict(width=0.6, color="#71717A")),
+            text=b["text"], hovertemplate="%{text}<extra></extra>",
+        ))
+    fig.update_layout(legend=dict(title="vs liga (puntos %)", orientation="h", y=-0.02, x=0.5, xanchor="center"))
     return fig
 
 

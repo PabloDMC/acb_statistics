@@ -23,6 +23,7 @@ def player_stats(
     items = [
         PlayerStatsRow(
             player={"id": r["player_id"], "name": r.get("name")},
+            position=r.get("position"),
             club_team={
                 "club": {"id": r.get("club_id"), "name": r.get("club_name")},
                 "team": {"id": r.get("team_id"), "name": r.get("team_name")},

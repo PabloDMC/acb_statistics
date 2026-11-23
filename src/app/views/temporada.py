@@ -20,8 +20,8 @@ st.caption(sel["competition_name"] + (f" · {sel['competition_phase']}" if sel["
 # Clasificación y evolución: siempre de la liga regular si la fase elegida no tiene clasificación
 std_phase = sel["competition_phase"] or ("LR" if "LR" in sel["phases"] else None)
 
-tab_std, tab_evo, tab_lead, tab_players, tab_teams = st.tabs(
-    ["Clasificación", "Evolución", "Líderes", "Jugadores", "Equipos"]
+tab_std, tab_evo, tab_cal, tab_lead, tab_players, tab_teams = st.tabs(
+    ["Clasificación", "Evolución", "Calendario", "Líderes", "Jugadores", "Equipos"]
 )
 
 # ---------------------------------------------------------------------------
@@ -127,6 +127,7 @@ LEADER_METRICS = [
 PER_LABELS = {"per_game": "Por partido", "total": "Totales", "per_40_min": "Por 40 min", "per_100_poss": "Por 100 posesiones"}
 
 with tab_lead:
+    st.caption("Clutch, récords en un partido, parejas asistente-anotador y líderes históricos: página «Líderes y récords».")
     c1, c2 = st.columns([3, 1])
     per = c1.segmented_control(
         "Escala", options=list(PER_LABELS), format_func=PER_LABELS.get, default="per_game", key="lead_per"
@@ -178,6 +179,7 @@ with tab_players:
     else:
         base = {
             "Jugador": lambda it: it["player"]["name"],
+            "Pos.": lambda it: it.get("position"),
             "Equipo": lambda it: it["club_team"]["team"]["name"],
             "Fase": lambda it: it["context"]["competition_phase"],
             "PJ": lambda it: it["games"],
@@ -226,3 +228,40 @@ with tab_teams:
             st.caption("Por 100 posesiones al ritmo medio de los partidos con jugada a jugada.")
         if row is not None:
             nav.goto("equipo", id=int(df.iloc[row]["_id"]))
+
+
+# ---------------------------------------------------------------------------
+# Calendario por jornadas
+# ---------------------------------------------------------------------------
+with tab_cal:
+    matches = api.get_all("/matches", sort="date", **filters.api_filters(sel))
+    if not matches:
+        st.info("Sin partidos para esta selección.")
+    else:
+        def _played(m):
+            return m["home_score"] is not None and m["away_score"] is not None and (m["home_score"] + m["away_score"]) > 0
+
+        rounds = sorted({(m["context"]["competition_phase"] or "", m.get("round") or 0) for m in matches})
+        played_rounds = [r for r in rounds if any(_played(m) for m in matches
+                                                  if (m["context"]["competition_phase"] or "", m.get("round") or 0) == r)]
+        default = played_rounds[-1] if played_rounds else rounds[0]
+        rnd = st.selectbox(
+            "Jornada", options=rounds, index=rounds.index(default), key="cal_round",
+            format_func=lambda r: (f"{r[0]} · " if not sel["competition_phase"] else "") + f"Jornada {r[1]}",
+        )
+        day = [m for m in matches if (m["context"]["competition_phase"] or "", m.get("round") or 0) == rnd]
+        df = pd.DataFrame([
+            {
+                "Fecha": (m.get("date") or "")[:16].replace("T", " "),
+                "Local": m["home_team"]["name"],
+                "Resultado": f"{m['home_score']} – {m['away_score']}" if _played(m) else "Pendiente",
+                "Visitante": m["away_team"]["name"],
+                "Pabellón": m.get("venue"),
+                "_id": m["id"],
+            }
+            for m in day
+        ])
+        row = components.selectable_table(df.drop(columns="_id"), key="cal_table", height=35 * len(df) + 38)
+        st.caption("Pulsa un partido para ver el boxscore.")
+        if row is not None:
+            nav.goto("partido", id=int(df.iloc[row]["_id"]))

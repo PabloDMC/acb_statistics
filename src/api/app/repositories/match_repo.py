@@ -138,7 +138,9 @@ def get_shots(
             s.shot_zone_range AS range,
             s.is_clutch,
             s.quarter,
-            s.seconds_remaining
+            s.seconds_remaining,
+            s.match_id AS shot_match_id,
+            s.score_team, s.score_opp
         FROM main_marts.fact_shots s
         {fb.where_sql()}
         ORDER BY s.quarter, s.seconds_remaining DESC
@@ -180,7 +182,7 @@ def get_boxscore_players(cur: duckdb.DuckDBPyConnection, match_id: int) -> list[
         """
         SELECT
             g.team_id, g.player_id, trim(g.player_name) AS player_name,
-            r.player_shirt_number AS shirt_number,
+            r.player_shirt_number AS shirt_number, g.player_game_role AS position,
             g.is_starter, g.seconds, g.play_time,
             g.points,
             g.field_goals_made, g.field_goals_attempted,
@@ -264,3 +266,62 @@ def get_play_by_play(
         fb.params,
     )
     return cursor_to_dicts(cur)
+
+
+# Faltas personales de jugador (sin técnicas de banquillo/entrenador ni faltas "offset")
+_PF_TYPES = "109, 159, 160, 161, 162, 163, 165, 166, 167, 169, 170, 171, 172, 537, 538, 539, 548, 549, 551"
+
+
+def get_quarter_box(cur: duckdb.DuckDBPyConnection, match_id: int, quarter: int) -> dict[int, dict]:
+    """Línea de cada jugador en un cuarto, desde la jugada a jugada (tiros, rebotes...) y los
+    tramos (minutos y +/-). Clave: player_id."""
+    cur.execute(
+        f"""
+        SELECT
+            player_id, any_value(team_id) AS team_id,
+            sum(points) AS points,
+            count(*) FILTER (WHERE play_type_id IN (93, 94, 100)) AS field_goals_made,
+            count(*) FILTER (WHERE play_type_id IN (93, 94, 100, 97, 98, 533)) AS field_goals_attempted,
+            count(*) FILTER (WHERE play_type_id IN (93, 100)) AS two_pointers_made,
+            count(*) FILTER (WHERE play_type_id IN (93, 100, 97, 533)) AS two_pointers_attempted,
+            count(*) FILTER (WHERE play_type_id = 94) AS three_pointers_made,
+            count(*) FILTER (WHERE play_type_id IN (94, 98)) AS three_pointers_attempted,
+            count(*) FILTER (WHERE play_type_id = 92) AS free_throws_made,
+            count(*) FILTER (WHERE play_type_id IN (92, 96)) AS free_throws_attempted,
+            count(*) FILTER (WHERE play_type_id = 101) AS off_rebounds,
+            count(*) FILTER (WHERE play_type_id = 104) AS def_rebounds,
+            count(*) FILTER (WHERE play_type_id IN (101, 104)) AS total_rebounds,
+            count(*) FILTER (WHERE play_type_id IN (107, 108, 119)) AS assists,
+            count(*) FILTER (WHERE play_type_id = 103) AS steals,
+            count(*) FILTER (WHERE play_type_id = 106) AS turnovers,
+            count(*) FILTER (WHERE play_type_id = 102) AS blocks,
+            count(*) FILTER (WHERE play_type_id = 105) AS received_blocks,
+            count(*) FILTER (WHERE play_type_id = 100) AS dunks,
+            count(*) FILTER (WHERE play_type_id IN ({_PF_TYPES})) AS personal_fouls,
+            count(*) FILTER (WHERE play_type_id = 110) AS fouls_drawn
+        FROM main_marts.fact_play_by_play
+        WHERE match_id = ? AND quarter = ? AND player_id IS NOT NULL AND NOT is_synthetic
+        GROUP BY player_id
+        """,
+        [match_id, quarter],
+    )
+    box = {r["player_id"]: r for r in cursor_to_dicts(cur)}
+    cur.execute(
+        """
+        SELECT player_id, any_value(team_id) AS team_id,
+               sum(start_time - end_time) AS seconds,
+               sum(team_points - opp_points) AS plus_minus
+        FROM (
+            SELECT team_id, start_time, end_time, team_points, opp_points, UNNEST(player_ids) AS player_id
+            FROM main_marts.fact_lineups
+            WHERE match_id = ? AND quarter = ?
+        )
+        GROUP BY player_id
+        """,
+        [match_id, quarter],
+    )
+    for r in cursor_to_dicts(cur):
+        row = box.setdefault(r["player_id"], {"player_id": r["player_id"], "team_id": r["team_id"]})
+        row["seconds"] = r["seconds"]
+        row["plus_minus"] = r["plus_minus"]
+    return box
