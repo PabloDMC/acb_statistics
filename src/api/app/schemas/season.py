@@ -19,10 +19,23 @@ class PhaseInfo(BaseModel):
     last_date: str | None = None
 
 
+class Coverage(BaseModel):
+    """Cuántos partidos jugados tienen cada tipo de dato. Antes de 2016-17 la ACB solo ofrece
+    el boxscore final: sin jugada a jugada no hay quintetos, rotaciones, posesiones ni clutch, y
+    sin tiros no hay cartas de tiro."""
+    played: int = 0
+    with_boxscore: int = 0
+    with_play_by_play: int = 0
+    with_shots: int = 0
+    has_play_by_play: bool = False  # al menos la mitad de los partidos jugados
+    has_shots: bool = False
+
+
 class CompetitionInfo(BaseModel):
     id: int
     name: str | None = None
     phases: list[PhaseInfo]
+    coverage: Coverage = Coverage()
 
 
 class EditionInfo(BaseModel):
@@ -56,6 +69,9 @@ class StandingRow(BaseModel):
 class Standings(BaseModel):
     context: CompetitionContext
     round: int | None = None  # jornada tras la que se calcula (None = todas las jugadas)
+    # False en temporadas antiguas cuya fase regular no fue a doble vuelta (grupos, varias fases):
+    # la tabla es el balance de la fase, no la clasificación oficial
+    official: bool = True
     tiebreak: str
     rows: list[StandingRow]
 
@@ -74,6 +90,7 @@ class StandingsRound(BaseModel):
 
 class StandingsHistory(BaseModel):
     context: CompetitionContext
+    official: bool = True
     teams: list[StandingRow]  # clasificación final, para nombres, logos y orden de la leyenda
     rounds: list[StandingsRound]
 

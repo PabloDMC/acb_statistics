@@ -56,7 +56,10 @@ SELECT
     pr.two_pointers_attempted,
     pr.three_pointers_made,
     pr.three_pointers_attempted,
-    pr.dunks,
+    -- Estadísticas que en temporadas antiguas no se registraban: si en toda la temporada y competición suman 0,
+    -- se dejan en NULL (sin dato) para que no cuenten como ceros en medias y récords. Con abs():
+    -- el +/- de todos los jugadores de una temporada suma 0 por definición.
+    CASE WHEN sum(abs(coalesce(pr.dunks, 0))) OVER (PARTITION BY pr.edition_id, mh.competition_id) = 0 THEN NULL ELSE pr.dunks END AS dunks,
     pr.assists,
     pr.off_rebounds,
     pr.def_rebounds,
@@ -64,10 +67,10 @@ SELECT
     pr.steals,
     pr.turnovers,
     pr.blocks,
-    pr.received_blocks,
+    CASE WHEN sum(abs(coalesce(pr.received_blocks, 0))) OVER (PARTITION BY pr.edition_id, mh.competition_id) = 0 THEN NULL ELSE pr.received_blocks END AS received_blocks,
     pr.personal_fouls,
-    pr.fouls_drawn,
-    pr.plus_minus,
+    CASE WHEN sum(abs(coalesce(pr.fouls_drawn, 0))) OVER (PARTITION BY pr.edition_id, mh.competition_id) = 0 THEN NULL ELSE pr.fouls_drawn END AS fouls_drawn,
+    CASE WHEN sum(abs(coalesce(pr.plus_minus, 0))) OVER (PARTITION BY pr.edition_id, mh.competition_id) = 0 THEN NULL ELSE pr.plus_minus END AS plus_minus,
     pr.rating,
 
     pr.cat_insert_date

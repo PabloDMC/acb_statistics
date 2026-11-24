@@ -34,7 +34,8 @@ _MATCH_SELECT = """
         m.away_team_id, at_.full_name AS away_team_name,
         m.home_score, m.away_score,
         m.home_arena AS venue,
-        m.round_number, m.attendance,
+        m.round_number, m.attendance, m.match_status AS status, m.is_played,
+        m.has_boxscore, m.has_play_by_play, m.has_shots,
         m.home_head_coach, m.away_head_coach, m.referees,
         ht.logo AS home_team_logo, at_.logo AS away_team_logo
     FROM main_marts.dim_matches m

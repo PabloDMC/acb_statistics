@@ -24,9 +24,8 @@ class PlayerSummary(BaseModel):
 
 class PlayerBasicInfo(BaseModel):
     """
-    Ficha del jugador (dim_players: su fila de roster más reciente). Fecha de
-    nacimiento, nacionalidad y altura no se ingieren todavía desde la API de la
-    ACB; si algún día se añaden, este es el sitio natural para meterlas.
+    Ficha del jugador (dim_players: su fila de roster más reciente + la ficha
+    biográfica de la web de la ACB).
     """
 
     id: int
@@ -40,6 +39,12 @@ class PlayerBasicInfo(BaseModel):
     first_season: NamedRef | None = None
     last_season: NamedRef | None = None
     seasons: int | None = None  # temporadas con ficha
+    # ficha biográfica (web de la ACB)
+    birth_date: str | None = None
+    birth_place: str | None = None
+    birth_country: str | None = None
+    nationality: str | None = None
+    height_m: float | None = None
 
 
 # ---- Producción / totales (agg_player_totals) --------------------------------

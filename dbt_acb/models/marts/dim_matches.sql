@@ -14,6 +14,16 @@ SELECT
     week_id,
 
     match_start_time,
+    match_status,
+    is_played,
+
+    ---------------------------------------------------
+    -- Cobertura: qué datos tiene el partido. Antes de 2016-17 la ACB solo ofrece el boxscore
+    -- final (sin cuartos), y algunos partidos antiguos ni eso: solo el resultado.
+    ---------------------------------------------------
+    match_id IN (SELECT match_id FROM {{ ref('stg_apiacb__boxscore') }}) AS has_boxscore,
+    match_id IN (SELECT match_id FROM {{ ref('stg_apiacb__play_by_play') }}) AS has_play_by_play,
+    match_id IN (SELECT match_id FROM {{ ref('stg_apiacb__match_shots') }}) AS has_shots,
 
     attendance,
 
@@ -66,4 +76,4 @@ SELECT
 
     cat_insert_date
 
-FROM {{ ref('int_matches') }}
+FROM {{ ref('int_matches') }} m

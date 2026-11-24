@@ -26,6 +26,19 @@ parts = [
     (info.get("current_team") or {}).get("name"),
     f"#{info['shirt_number']}" if info.get("shirt_number") else None,
 ]
+if info.get("height_m"):
+    parts.append(f"{info['height_m']:.2f} m".replace(".", ","))
+if info.get("birth_date"):
+    from datetime import date
+
+    bd = date.fromisoformat(info["birth_date"][:10])
+    today = date.today()
+    age = today.year - bd.year - ((today.month, today.day) < (bd.month, bd.day))
+    born = bd.strftime("%d/%m/%Y") + f" ({age} años)"
+    place = ", ".join(p for p in (info.get("birth_place"), info.get("birth_country")) if p)
+    parts.append(f"nacido el {born}" + (f" en {place}" if place else ""))
+if info.get("nationality"):
+    parts.append(info["nationality"])
 first, last = info.get("first_season") or {}, info.get("last_season") or {}
 if first.get("name"):
     parts.append(f"{info.get('seasons')} temporadas ({first['name']} – {last.get('name')})")

@@ -14,6 +14,20 @@ sel = filters.current()
 if not sel:
     st.stop()
 
+# sin jugada a jugada (antes de 2016-17) no hay posesiones: se quita la escala "por 100 posesiones"
+_pbp = filters.has_play_by_play(sel.get("edition_id"), sel.get("competition_id"))
+
+
+def _scales(labels: dict) -> list[str]:
+    return [k for k in labels if _pbp or not k.startswith("per_100")]
+
+
+if not _pbp:  # si venía elegida de otra temporada, se vuelve a la escala por defecto
+    for _k in ("lead_per", "pl_per", "tm_per"):
+        if str(st.session_state.get(_k, "")).startswith("per_100"):
+            del st.session_state[_k]
+
+
 st.title(f"Temporada {sel['edition_name']}")
 st.caption(sel["competition_name"] + (f" · {sel['competition_phase']}" if sel["competition_phase"] else " · todas las fases"))
 
@@ -63,7 +77,10 @@ with tab_std:
             },
             height=35 * len(df) + 38,
         )
-        st.caption(f"Pulsa un equipo para ver su página. Desempate: {standings['tiebreak']}")
+        if standings.get("official", True):
+            st.caption(f"Pulsa un equipo para ver su página. Desempate: {standings['tiebreak']}")
+        else:
+            st.warning("Balance de la fase regular, no clasificación oficial. " + standings["tiebreak"])
         if row is not None:
             nav.goto("equipo", id=int(df.iloc[row]["_id"]))
 
@@ -76,6 +93,9 @@ with tab_evo:
     ) if std_phase else None
     if not hist or not hist["rounds"]:
         st.info("No hay jornadas para dibujar la evolución.")
+    elif not hist.get("official", True):
+        st.info("Esta temporada la fase regular se jugó en grupos o en varias fases: no hay una clasificación "
+                "única cuya evolución dibujar.")
     else:
         teams = {t["team"]["id"]: t for t in hist["teams"]}
         names = {tid: t["team"]["name"] for tid, t in teams.items()}
@@ -130,7 +150,7 @@ with tab_lead:
     st.caption("Clutch, récords en un partido, parejas asistente-anotador y líderes históricos: página «Líderes y récords».")
     c1, c2 = st.columns([3, 1])
     per = c1.segmented_control(
-        "Escala", options=list(PER_LABELS), format_func=PER_LABELS.get, default="per_game", key="lead_per"
+        "Escala", options=_scales(PER_LABELS), format_func=PER_LABELS.get, default="per_game", key="lead_per"
     ) or "per_game"
     min_games = c2.number_input("Mínimo de partidos", min_value=0, max_value=60, value=5, step=1, key="lead_min")
     cols = st.columns(3)
@@ -169,7 +189,7 @@ P_PER = {"per_game": "Por partido", "total": "Totales", "per_36": "Por 36 min", 
 
 with tab_players:
     c1, c2, c3 = st.columns([2, 2, 1])
-    p_per = c1.segmented_control("Escala", options=list(P_PER), format_func=P_PER.get, default="per_game", key="pl_per") or "per_game"
+    p_per = c1.segmented_control("Escala", options=_scales(P_PER), format_func=P_PER.get, default="per_game", key="pl_per") or "per_game"
     group = c2.segmented_control("Columnas", options=list(tables.PLAYER_GROUPS), default="Básicas", key="pl_group") or "Básicas"
     p_min = c3.number_input("Mín. partidos", min_value=0, max_value=60, value=5, step=1, key="pl_min")
 
@@ -202,7 +222,7 @@ T_PER = {"per_game": "Por partido", "total": "Totales", "per_100": "Por 100 pose
 
 with tab_teams:
     c1, c2 = st.columns([2, 3])
-    t_per = c1.segmented_control("Escala", options=list(T_PER), format_func=T_PER.get, default="per_game", key="tm_per") or "per_game"
+    t_per = c1.segmented_control("Escala", options=_scales(T_PER), format_func=T_PER.get, default="per_game", key="tm_per") or "per_game"
     t_group = c2.segmented_control("Columnas", options=list(tables.TEAM_GROUPS), default="Básicas", key="tm_group") or "Básicas"
 
     items = api.get_all("/stats/teams", per=t_per, **filters.api_filters(sel))
@@ -239,6 +259,8 @@ with tab_cal:
         st.info("Sin partidos para esta selección.")
     else:
         def _played(m):
+            if m.get("is_played") is not None:
+                return m["is_played"]
             return m["home_score"] is not None and m["away_score"] is not None and (m["home_score"] + m["away_score"]) > 0
 
         rounds = sorted({(m["context"]["competition_phase"] or "", m.get("round") or 0) for m in matches})
@@ -252,7 +274,7 @@ with tab_cal:
         day = [m for m in matches if (m["context"]["competition_phase"] or "", m.get("round") or 0) == rnd]
         df = pd.DataFrame([
             {
-                "Fecha": (m.get("date") or "")[:16].replace("T", " "),
+                "Fecha": components.local_dt(m.get("date")),
                 "Local": m["home_team"]["name"],
                 "Resultado": f"{m['home_score']} – {m['away_score']}" if _played(m) else "Pendiente",
                 "Visitante": m["away_team"]["name"],

@@ -38,13 +38,15 @@ def extract_round_ids(competition_payload: Dict[str, Any]) -> List[Tuple[int, in
     return round_ids
 
 def extract_match_ids(matchlist_payload: Dict[str, Any]) -> List[Tuple[int, int]]:
-    """Extrae tuplas de (edition_id, match_id) desde el listado de partidos de una ronda."""
+    """Extrae tuplas de (edition_id, match_id) de los partidos TERMINADOS de una ronda: los
+    programados o en juego no tienen estadísticas que descargar (su fecha, equipos y marcador ya
+    vienen en el propio matchlist, que se guarda entero para el calendario)."""
     match_ids = []
     edition_id = matchlist_payload.get("editionId")
     if edition_id is not None:
         for match in matchlist_payload.get("matches", []):
             match_id = match.get("id")
-            if match_id is not None:
+            if match_id is not None and match.get("matchStatus") == "FINALIZED":
                 match_ids.append((edition_id, match_id))
     return match_ids
 
@@ -179,11 +181,11 @@ def run_pipeline(is_incremental: bool = False, target_editions: list = None):
                     continue
                 ml_payload = cached_payload   # la API ha fallado: seguimos con lo que había
                 
-            # Si en la ronda entera no hay partidos jugados aún, evitamos escribir un JSON vacío
-            matches = ml_payload.get("matches", [])
-            if not any(m.get("matchStatus") == "FINALIZED" for m in matches):
+            # Se guardan también las rondas sin partidos jugados: son el calendario pendiente
+            # (fecha y equipos de cada partido). Solo se descarta una ronda sin partidos.
+            if not ml_payload.get("matches"):
                 continue
-                
+
             save_json_file("apiacb_matchlist", filename, ml_payload)
             
         all_match_tasks.update(extract_match_ids(ml_payload))

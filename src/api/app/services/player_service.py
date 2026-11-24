@@ -176,6 +176,11 @@ def _basic_from_row(row: dict) -> PlayerBasicInfo:
         first_season=named_ref(row, "first_edition_id", "first_season_name"),
         last_season=named_ref(row, "last_edition_id", "last_season_name"),
         seasons=row.get("seasons"),
+        birth_date=row.get("birth_date"),
+        birth_place=row.get("birth_place"),
+        birth_country=row.get("birth_country"),
+        nationality=row.get("nationality"),
+        height_m=row.get("height_m"),
     )
 
 

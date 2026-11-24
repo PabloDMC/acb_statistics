@@ -15,6 +15,13 @@ class MatchSummary(BaseModel):
     away_score: int | None = None
     venue: str | None = None
     round: int | None = None  # jornada (o número de ronda en playoffs/copa)
+    status: str | None = None  # FINALIZED, SCHEDULED...
+    is_played: bool | None = None
+    # qué datos hay (antes de 2016-17 no hay jugada a jugada ni tiros; algunos partidos muy
+    # antiguos solo tienen el resultado)
+    has_boxscore: bool | None = None
+    has_play_by_play: bool | None = None
+    has_shots: bool | None = None
     attendance: int | None = None
     home_coach: str | None = None
     away_coach: str | None = None

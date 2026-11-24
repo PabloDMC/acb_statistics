@@ -63,6 +63,7 @@ teams AS (
         current_away_score AS opponent_points
 
     FROM matches
+    WHERE is_played  -- los partidos programados no cuentan en totales ni clasificación
 
     UNION ALL
 
@@ -85,6 +86,7 @@ teams AS (
         current_home_score
 
     FROM matches
+    WHERE is_played  -- los partidos programados no cuentan en totales ni clasificación
 
 ),
 
@@ -124,6 +126,9 @@ SELECT
     opp.team_name AS opponent_team_name,
     (t.points > t.opponent_points) AS is_win,
 
+    -- hay boxscore (algunos partidos antiguos solo tienen el resultado): las medias de las
+    -- estadísticas del boxscore se calculan sobre estos partidos
+    (bs.points IS NOT NULL) AS has_boxscore,
     pt.seconds,
     bs.free_throws_made,
     bs.free_throws_attempted,
@@ -139,7 +144,9 @@ SELECT
     (bs.two_pointers_made + bs.three_pointers_made) / NULLIF(bs.two_pointers_attempted + bs.three_pointers_attempted,0) AS field_goals_pct,
     (bs.two_pointers_made + 1.5 * bs.three_pointers_made) / NULLIF(bs.two_pointers_attempted + bs.three_pointers_attempted, 0) AS effective_field_goals_pct,
     t.points / NULLIF(2 * (bs.two_pointers_attempted + bs.three_pointers_attempted + 0.44 * bs.free_throws_attempted), 0) AS true_shooting_pct,
-    bs.dunks,
+    -- NULL (sin dato) si en toda la temporada y competición suman 0: no se registraban (p. ej.
+    -- faltas recibidas en la Liga antes de 1990-91). Ver int_boxscore.
+    CASE WHEN sum(abs(coalesce(bs.dunks, 0))) OVER (PARTITION BY t.edition_id, t.competition_id) = 0 THEN NULL ELSE bs.dunks END AS dunks,
     bs.assists,
     bs.off_rebounds,
     bs.def_rebounds,
@@ -147,9 +154,9 @@ SELECT
     bs.steals,
     bs.turnovers,
     bs.blocks,
-    bs.received_blocks,
+    CASE WHEN sum(abs(coalesce(bs.received_blocks, 0))) OVER (PARTITION BY t.edition_id, t.competition_id) = 0 THEN NULL ELSE bs.received_blocks END AS received_blocks,
     bs.personal_fouls,
-    bs.fouls_drawn,
+    CASE WHEN sum(abs(coalesce(bs.fouls_drawn, 0))) OVER (PARTITION BY t.edition_id, t.competition_id) = 0 THEN NULL ELSE bs.fouls_drawn END AS fouls_drawn,
 
     bs.team_off_rebounds,
     bs.team_def_rebounds,

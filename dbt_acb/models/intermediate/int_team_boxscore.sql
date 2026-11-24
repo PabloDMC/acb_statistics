@@ -59,3 +59,9 @@ FROM total t
 LEFT JOIN team tm
     ON tm.match_id = t.match_id
    AND tm.team_id = t.team_id
+-- Algunos partidos antiguos (Copa 1988-1995) traen un boxscore vacío: sin jugadores y con los
+-- totales a 0. No son datos: se descartan para que no cuenten como partidos de 0 puntos.
+WHERE EXISTS (
+    SELECT 1 FROM {{ ref('stg_apiacb__boxscore') }} p
+    WHERE p.match_id = t.match_id AND p.team_id = t.team_id
+)

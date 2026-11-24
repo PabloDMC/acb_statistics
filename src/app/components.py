@@ -70,5 +70,27 @@ def selectable_table(df: pd.DataFrame, key: str, column_config: dict | None = No
 def sections(options: list[str], key: str) -> str:
     """Selector de sección (en lugar de st.tabs): solo se ejecuta la sección elegida, así una
     página con muchas secciones no hace todas sus llamadas a la API de golpe."""
+    if key in st.session_state and st.session_state[key] not in options:
+        del st.session_state[key]  # la sección elegida no existe aquí (p. ej. partido sin jugada a jugada)
     choice = st.segmented_control(" ", options=options, default=options[0], key=key, label_visibility="collapsed")
     return choice or options[0]
+
+
+PBP_ONLY_NOTE = ("Antes de la temporada 2016-17 la ACB solo publica el boxscore final de cada partido: "
+                 "no hay jugada a jugada ni tiros con posición, así que no hay quintetos, rotaciones, "
+                 "estadísticas por posesión, clutch ni cartas de tiro.")
+
+
+def local_dt(value: str | None, with_time: bool = True) -> str:
+    """Fecha de la API (UTC, sin zona) en hora peninsular española."""
+    if not value:
+        return ""
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "")).replace(tzinfo=timezone.utc)
+        dt = dt.astimezone(ZoneInfo("Europe/Madrid"))  # en Windows necesita el paquete tzdata
+    except Exception:
+        return value[:16].replace("T", " ")
+    return dt.strftime("%Y-%m-%d %H:%M" if with_time else "%Y-%m-%d")

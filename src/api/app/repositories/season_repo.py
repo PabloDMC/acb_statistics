@@ -23,7 +23,11 @@ def list_editions(cur: duckdb.DuckDBPyConnection) -> list[dict]:
             m.round_type AS phase,
             count(*) AS matches,
             min(m.match_start_time) AS first_date,
-            max(m.match_start_time) AS last_date
+            max(m.match_start_time) AS last_date,
+            count(*) FILTER (WHERE m.is_played) AS played,
+            count(*) FILTER (WHERE m.has_boxscore) AS with_boxscore,
+            count(*) FILTER (WHERE m.has_play_by_play) AS with_play_by_play,
+            count(*) FILTER (WHERE m.has_shots) AS with_shots
         FROM main_marts.dim_matches m
         LEFT JOIN main_marts.dim_editions e ON e.edition_id = m.edition_id
         LEFT JOIN main_marts.dim_competitions c ON c.competition_id = m.competition_id
@@ -65,6 +69,14 @@ def standings_games(
         [edition_id, competition_id, competition_phase],
     )
     return cursor_to_dicts(cur)
+
+
+def has_pending_matches(cur: duckdb.DuckDBPyConnection, edition_id: int, competition_id: int) -> bool:
+    cur.execute(
+        "SELECT count(*) FROM main_marts.dim_matches WHERE edition_id = ? AND competition_id = ? AND NOT is_played",
+        [edition_id, competition_id],
+    )
+    return (cur.fetchone() or [0])[0] > 0
 
 
 def teams_info(cur: duckdb.DuckDBPyConnection, team_ids: list[int]) -> dict[int, dict]:

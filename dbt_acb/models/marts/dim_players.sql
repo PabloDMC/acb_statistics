@@ -51,8 +51,16 @@ SELECT
     c.last_edition_id,
     c.editions,
     c.first_match_date,
-    c.last_match_date
+    c.last_match_date,
+    -- ficha biográfica (web de la ACB; NULL si no se ha descargado)
+    b.birth_date,
+    b.birth_place,
+    b.birth_country,
+    b.nationality,
+    b.height_m
 FROM ranked r
 JOIN career c
+    USING (player_id)
+LEFT JOIN {{ ref('stg_acbweb__player_bio') }} b
     USING (player_id)
 WHERE r.rn = 1
