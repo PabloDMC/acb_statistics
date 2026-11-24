@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from itertools import groupby
 
 import duckdb
@@ -9,6 +9,7 @@ from app.core.exceptions import ResourceNotFoundError
 from app.repositories import season_repo
 from app.schemas.season import (
     CompetitionInfo,
+    Coverage,
     EditionInfo,
     LeagueZone,
     PhaseInfo,
@@ -51,9 +52,20 @@ def list_editions(cur: duckdb.DuckDBPyConnection) -> list[EditionInfo]:
         comps = []
         for comp_id, c_rows in groupby(ed_rows, key=lambda r: r["competition_id"]):
             c_rows = list(c_rows)
+            played = sum(r.get("played") or 0 for r in c_rows)
+            with_pbp = sum(r.get("with_play_by_play") or 0 for r in c_rows)
+            with_shots = sum(r.get("with_shots") or 0 for r in c_rows)
             comps.append(CompetitionInfo(
                 id=comp_id,
                 name=c_rows[0].get("competition_name"),
+                coverage=Coverage(
+                    played=played,
+                    with_boxscore=sum(r.get("with_boxscore") or 0 for r in c_rows),
+                    with_play_by_play=with_pbp,
+                    with_shots=with_shots,
+                    has_play_by_play=played > 0 and with_pbp * 2 >= played,
+                    has_shots=played > 0 and with_shots * 2 >= played,
+                ),
                 phases=[
                     PhaseInfo(
                         code=r["phase"],
@@ -125,8 +137,34 @@ def _order_tied(team_ids: list[int], games: list[dict], rec: dict[int, dict]) ->
     return result
 
 
-def _rank(games: list[dict]) -> tuple[list[int], dict[int, dict]]:
+IRREGULAR_TIEBREAK = (
+    "Porcentaje de victorias y, a igualdad, diferencia de puntos. La fase regular de esta temporada "
+    "no fue una liga a doble vuelta (se jugó en grupos o en varias fases), así que esta tabla es el "
+    "balance de cada equipo en toda la fase, no la clasificación oficial."
+)
+
+
+def is_double_round_robin(games: list[dict]) -> bool:
+    """Liga a doble vuelta: cada equipo se enfrenta exactamente dos veces a todos los demás.
+    En las temporadas antiguas la fase regular se jugaba en grupos o en varias fases (la API no
+    distingue los grupos), y ahí una clasificación única con desempates oficiales no tiene sentido."""
+    meetings: dict[int, Counter] = defaultdict(Counter)
+    for g in games:
+        meetings[g["team_id"]][g["opponent_team_id"]] += 1
+    teams = set(meetings)
+    return len(teams) > 1 and all(
+        set(opp) == teams - {t} and all(n == 2 for n in opp.values()) for t, opp in meetings.items()
+    )
+
+
+def _rank(games: list[dict], official: bool = True) -> tuple[list[int], dict[int, dict]]:
     rec = _team_records(games)
+    if not official:
+        order = sorted(rec, key=lambda t: (
+            -(rec[t]["wins"] / rec[t]["games"]) if rec[t]["games"] else 0,
+            -(rec[t]["points_for"] - rec[t]["points_against"]),
+        ))
+        return order, rec
     by_record = sorted(rec, key=lambda t: (-rec[t]["wins"], rec[t]["losses"]))
     order: list[int] = []
     for _, tied in groupby(by_record, key=lambda t: (rec[t]["wins"], rec[t]["losses"])):
@@ -183,6 +221,14 @@ def _context(cur, edition_id: int, competition_id: int, phase: str) -> dict:
     }
 
 
+def _is_current_or_round_robin(cur, edition_id: int, competition_id: int, games: list[dict]) -> bool:
+    """Doble vuelta, o temporada en curso (con partidos aún por jugar no se puede comprobar;
+    las actuales siempre son a doble vuelta)."""
+    if is_double_round_robin(games):
+        return True
+    return season_repo.has_pending_matches(cur, edition_id, competition_id)
+
+
 def _games_or_404(cur, edition_id: int, competition_id: int, phase: str) -> list[dict]:
     games = season_repo.standings_games(cur, edition_id, competition_id, phase)
     if not games:
@@ -201,14 +247,17 @@ def get_standings(
     round_number: int | None,
 ) -> Standings:
     games = _games_or_404(cur, edition_id, competition_id, competition_phase)
+    # el formato se decide con la fase entera (a mitad de temporada aún no hay doble vuelta)
+    official = competition_phase != "LR" or _is_current_or_round_robin(cur, edition_id, competition_id, games)
     if round_number is not None:
         games = [g for g in games if g.get("round_number") is not None and g["round_number"] <= round_number]
-    order, rec = _rank(games)
+    order, rec = _rank(games, official)
     info = season_repo.teams_info(cur, order)
     return Standings(
         context=_context(cur, edition_id, competition_id, competition_phase),
         round=round_number,
-        tiebreak=TIEBREAK,
+        official=official,
+        tiebreak=TIEBREAK if official else IRREGULAR_TIEBREAK,
         rows=_rows(order, rec, info),
     )
 
@@ -220,10 +269,11 @@ def get_standings_history(
     competition_phase: str,
 ) -> StandingsHistory:
     games = _games_or_404(cur, edition_id, competition_id, competition_phase)
+    official = competition_phase != "LR" or _is_current_or_round_robin(cur, edition_id, competition_id, games)
     rounds = sorted({g["round_number"] for g in games if g.get("round_number") is not None})
     history = []
     for rnd in rounds:
-        order, rec = _rank([g for g in games if g.get("round_number") is not None and g["round_number"] <= rnd])
+        order, rec = _rank([g for g in games if g.get("round_number") is not None and g["round_number"] <= rnd], official)
         history.append(StandingsRound(
             round=rnd,
             positions=[
@@ -231,10 +281,11 @@ def get_standings_history(
                 for i, t in enumerate(order, start=1)
             ],
         ))
-    order, rec = _rank(games)
+    order, rec = _rank(games, official)
     info = season_repo.teams_info(cur, order)
     return StandingsHistory(
         context=_context(cur, edition_id, competition_id, competition_phase),
+        official=official,
         teams=_rows(order, rec, info),
         rounds=history,
     )

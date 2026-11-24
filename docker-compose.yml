@@ -1,0 +1,28 @@
+# Levanta la app en local con Docker, igual que en el despliegue pero en dos servicios:
+#   docker compose up --build      ->  app en http://localhost:8501, API en http://localhost:8000/docs
+# Usa la base de data/database/ (montada en solo lectura).
+services:
+  api:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    command: ["sh", "-c", "cd src/api && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+    environment:
+      ACB_DUCKDB_PATH: /data/acb_analytics.duckdb
+    volumes:
+      - ./data/database:/data:ro
+    ports:
+      - "8000:8000"
+
+  app:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    command: ["streamlit", "run", "src/app/streamlit_app.py", "--server.port", "8501",
+              "--server.address", "0.0.0.0", "--server.headless", "true"]
+    environment:
+      ACB_API_URL: http://api:8000/api/v1
+    ports:
+      - "8501:8501"
+    depends_on:
+      - api

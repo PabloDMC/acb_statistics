@@ -10,6 +10,14 @@ seed-paths: ["seeds"]
 macro-paths: ["macros"]
 snapshot-paths: ["snapshots"]
 
+# Ajustes de DuckDB para no quedarse sin memoria al leer los ~3 GB de JSON:
+# - preserve_insertion_order=false: DuckDB no tiene que guardar el orden de lectura (no lo usamos)
+#   y así puede volcar a disco y usar mucha menos RAM en los CREATE TABLE AS SELECT.
+# - temp_directory: dónde volcar cuando la memoria no llega (ignorado por git, como data/).
+on-run-start:
+  - "SET preserve_insertion_order = false"
+  - "SET temp_directory = '../data/database/duckdb_tmp'"
+
 clean-targets:
   - "target"
   - "dbt_packages"

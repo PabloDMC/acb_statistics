@@ -23,5 +23,9 @@ with st.sidebar:
     components.search_box(st.sidebar, key="sidebar_search")
     st.divider()
 filters.sidebar()
+st.sidebar.caption(
+    "Datos: [ACB](https://www.acb.com). Proyecto personal sin relación con la ACB · "
+    "[código](https://github.com/PabloDMC/acb_statistics)"
+)
 
 page.run()

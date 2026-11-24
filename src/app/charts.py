@@ -124,17 +124,43 @@ def _bucket(diff: float) -> int:
     return len(ZONE_BOUNDS)
 
 
+def _percentile_rank(values: list[int], v: int) -> float:
+    """Percentil de `v` entre `values` como scipy.stats.percentileofscore(kind="rank"), el que usaba
+    tu función original: con empates, la media entre el percentil estricto y el débil."""
+    n = len(values)
+    below = sum(1 for x in values if x < v)
+    equal = sum(1 for x in values if x == v)
+    return 100.0 * (below + 0.5 * equal) / n
+
+
+def _hex_vertices(cx: float, cy: float, radius: float) -> tuple[list[float], list[float]]:
+    """Vértices de un hexágono con un vértice arriba (como los de _hex_bin), cerrado."""
+    angles = [math.radians(30 + 60 * k) for k in range(7)]
+    return [cx + radius * math.cos(a) for a in angles], [cy + radius * math.sin(a) for a in angles]
+
+
 def shot_hexes(
     shots: list[dict],
     league_pct_by_zone: dict[int, float],
-    hex_size: float = 450,
+    hex_size: float = 290,
+    three_offset: float = 1.0,
     height: int = 520,
 ) -> go.Figure:
     """
-    Carta de tiro por zonas (como la función original de src/shots.py): cada hexágono está donde
-    se tiró, su tamaño (tres escalones) es el volumen de tiro de ese punto y su color, el acierto
-    del jugador EN SU ZONA frente a la media de la liga en esa zona. Así el color no depende de
-    los pocos tiros de un hexágono, sino de toda la zona.
+    Carta de tiro por zonas (como tu función original de src/shots.py): cada hexágono está donde
+    se tiró, su tamaño es el volumen de tiro en ese punto y su color, el acierto del jugador EN SU
+    ZONA frente a la media de la liga en esa zona (así el color no depende de los pocos tiros de un
+    hexágono, sino de toda la zona).
+
+    - Los hexágonos se dibujan como polígonos en milímetros, no como marcadores en píxeles: el más
+      grande ocupa la celda entera y encaja con sus vecinos sin huecos, a cualquier tamaño de
+      pantalla.
+    - `hex_size`: radio de la celda en mm. 290 equivale al gridsize=30 de matplotlib sobre los 15 m
+      de ancho de la pista (celdas de 0,5 m de ancho).
+    - Tamaño en tres escalones según el percentil del volumen de la celda (< 33 → 40%, 33-66 → 70%,
+      > 66 → 100%), con el mismo cálculo de percentil que la función original.
+    - `three_offset`: factor para separar de la línea los triples frontales (zonas 10-12). La función
+      original usaba 1,12, pero eso saca de la pista los triples de 45º; por defecto, 1 (sin mover).
     """
     fig = court_figure(height)
     shots = [s for s in shots if s["y"] <= Y_RANGE[1] - 600 and s.get("zone_id") is not None]
@@ -150,19 +176,17 @@ def shot_hexes(
     zone_pct = {z: m / n for z, (n, m) in zone_tot.items()}
     zone_name = {s["zone_id"]: f"{s.get('zone') or ''} · {s.get('area') or ''}" for s in shots}
 
-    # los triples frontales (zonas 10-12) se separan un poco de la línea, como en la función original
-    xs = np.array([s["x"] * (1.12 if s["zone_id"] in (10, 11, 12) else 1) for s in shots], dtype=float)
-    ys = np.array([s["y"] * (1.12 if s["zone_id"] in (10, 11, 12) else 1) for s in shots], dtype=float)
+    factor = [three_offset if s["zone_id"] in (10, 11, 12) else 1.0 for s in shots]
+    xs = np.array([s["x"] * f for s, f in zip(shots, factor)], dtype=float)
+    ys = np.array([s["y"] * f for s, f in zip(shots, factor)], dtype=float)
     q, r = _hex_bin(xs, ys, hex_size)
     cells: dict[tuple[int, int], list[dict]] = {}
     for qi, ri, s in zip(q, r, shots):
         cells.setdefault((qi, ri), []).append(s)
+    counts = [len(v) for v in cells.values()]
 
-    counts = sorted(len(v) for v in cells.values())
-    p33 = counts[int(0.33 * (len(counts) - 1))]
-    p66 = counts[int(0.66 * (len(counts) - 1))]
-
-    buckets: dict[int, dict[str, list]] = {i: {"x": [], "y": [], "size": [], "text": []} for i in range(5)}
+    polys = {i: {"x": [], "y": []} for i in range(5)}
+    hover = {"x": [], "y": [], "text": []}
     for (qi, ri), cell in cells.items():
         diffs = [100 * (zone_pct[s["zone_id"]] - league_pct_by_zone[s["zone_id"]])
                  for s in cell if league_pct_by_zone.get(s["zone_id"]) is not None]
@@ -170,25 +194,35 @@ def shot_hexes(
             continue
         diff = sum(diffs) / len(diffs)
         n = len(cell)
-        scale = 0.4 if n < p33 else (1.0 if n > p66 else 0.7)
+        perc = _percentile_rank(counts, n)
+        scale = 0.4 if perc < 33 else (1.0 if perc > 66 else 0.7)
+        cx = hex_size * math.sqrt(3) * (qi + ri / 2)
+        cy = hex_size * 1.5 * ri
+        vx, vy = _hex_vertices(cx, cy, hex_size * scale)
+        p = polys[_bucket(diff)]
+        p["x"] += vx + [None]
+        p["y"] += vy + [None]
+
         zid = max({s["zone_id"] for s in cell}, key=lambda z: sum(1 for s in cell if s["zone_id"] == z))
-        b = buckets[_bucket(diff)]
-        b["x"].append(hex_size * math.sqrt(3) * (qi + ri / 2))
-        b["y"].append(hex_size * 1.5 * ri)
-        b["size"].append(26 * scale)
         lg = league_pct_by_zone.get(zid)
-        b["text"].append(
+        hover["x"].append(cx)
+        hover["y"].append(cy)
+        hover["text"].append(
             f"{zone_name[zid]}<br>En la zona: {100 * zone_pct[zid]:.0f}% ({zone_tot[zid][1]}/{zone_tot[zid][0]})"
             + (f" · liga {100 * lg:.0f}%" if lg is not None else "")
             + f"<br>Tiros en este punto: {n}"
         )
-    for i, b in buckets.items():
+
+    for i, p in polys.items():
         fig.add_trace(go.Scatter(
-            x=b["x"] or [None], y=b["y"] or [None], mode="markers", name=ZONE_LABELS[i],
-            marker=dict(symbol="hexagon", size=b["size"] or [10], color=ZONE_COLORS[i],
-                        line=dict(width=0.6, color="#71717A")),
-            text=b["text"], hovertemplate="%{text}<extra></extra>",
+            x=p["x"] or [None], y=p["y"] or [None], mode="lines", fill="toself", name=ZONE_LABELS[i],
+            fillcolor=ZONE_COLORS[i], line=dict(width=0.6, color="#71717A"), hoverinfo="skip",
         ))
+    # capa invisible en el centro de cada hexágono para el texto al pasar el ratón
+    fig.add_trace(go.Scatter(
+        x=hover["x"], y=hover["y"], mode="markers", showlegend=False,
+        marker=dict(size=12, opacity=0), text=hover["text"], hovertemplate="%{text}<extra></extra>",
+    ))
     fig.update_layout(legend=dict(title="vs liga (puntos %)", orientation="h", y=-0.02, x=0.5, xanchor="center"))
     return fig
 

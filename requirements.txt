@@ -16,3 +16,7 @@ pandas>=2.0
 # Capa de consumo (src/app)
 streamlit>=1.40
 plotly>=5.20
+tzdata  # zonas horarias en Windows (hora peninsular en la app)
+
+# Despliegue (scripts/publish_db.py, scripts/deploy_space.py)
+huggingface_hub>=0.24

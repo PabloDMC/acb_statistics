@@ -5,6 +5,7 @@ import streamlit as st
 
 import api
 import charts
+import filters
 import components
 import leaders
 import nav
@@ -45,9 +46,14 @@ if history:
     if chosen != team_id:
         nav.goto("equipo", id=chosen)
 
+_team_pbp = filters.has_play_by_play(edition["id"], first["context"]["competition"]["id"])
 section = components.sections(
-    ['Plantilla', 'Calendario', 'Estadísticas', 'Tiro', 'Rotaciones', 'Quintetos', 'Líderes'], key="tm_section"
+    ['Plantilla', 'Calendario', 'Estadísticas', 'Tiro', 'Rotaciones', 'Quintetos', 'Líderes'] if _team_pbp
+    else ['Plantilla', 'Calendario', 'Estadísticas', 'Líderes'],
+    key="tm_section",
 )
+if not _team_pbp:
+    st.caption(components.PBP_ONLY_NOTE)
 
 # ---------------------------------------------------------------------------
 # Plantilla con estadísticas
@@ -91,15 +97,15 @@ if section == "Calendario":
         for m in matches:
             home = m["home_team"]["id"] == team_id
             own, opp = (m["home_score"], m["away_score"]) if home else (m["away_score"], m["home_score"])
-            played = own is not None and opp is not None and (own + opp) > 0
+            played = m["is_played"] if m.get("is_played") is not None else (own is not None and opp is not None and (own + opp) > 0)
             rows.append({
-                "Fecha": (m.get("date") or "")[:10],
+                "Fecha": components.local_dt(m.get("date")),
                 "Fase": m["context"]["competition_phase"],
                 "J": m.get("round"),
                 "": "vs" if home else "@",
                 "Rival": m["away_team"]["name"] if home else m["home_team"]["name"],
                 "Res": ("V" if own > opp else "D") if played else "",
-                "Marcador": f"{own}-{opp}" if played else "",
+                "Marcador": f"{own}-{opp}" if played else "Pendiente",
                 "_id": m["id"],
             })
         df = pd.DataFrame(rows)

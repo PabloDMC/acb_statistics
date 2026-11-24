@@ -67,6 +67,22 @@ def sidebar() -> dict:
     return selection
 
 
+def coverage(edition_id: int | None, competition_id: int | None) -> dict:
+    """Qué datos hay en una temporada y competición. Antes de 2016-17 la ACB solo da el boxscore
+    final: ni jugada a jugada (quintetos, rotaciones, posesiones, clutch) ni tiros."""
+    for e in _editions():
+        if e["id"] == edition_id:
+            for c in e["competitions"]:
+                if c["id"] == competition_id:
+                    return c.get("coverage") or {}
+    return {}
+
+
+def has_play_by_play(edition_id: int | None, competition_id: int | None) -> bool:
+    # sin información (API antigua) se asume que sí, para no esconder nada por error
+    return coverage(edition_id, competition_id).get("has_play_by_play", True)
+
+
 def current() -> dict:
     """La temporada elegida en la barra lateral."""
     return st.session_state.get("season", {})

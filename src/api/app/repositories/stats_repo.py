@@ -165,7 +165,10 @@ def team_stats(
 
     def scaled(col: str) -> str:
         if per == "per_game":
-            return f"t.{col} * 1.0 / NULLIF(t.games, 0)"
+            # el marcador está en todos los partidos; el resto del boxscore falta en algunos
+            # partidos antiguos, así que su media va sobre los partidos con boxscore
+            games = "t.games" if col in ("points", "opponent_points") else "t.games_with_boxscore"
+            return f"t.{col} * 1.0 / NULLIF({games}, 0)"
         if per == "per_100":
             # por partido escalado al ritmo medio de los partidos con posesiones: exacto en
             # temporadas con play-by-play completo, aproximado en las demás

@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.core.cache import ResponseCacheMiddleware
 from app.core.config import get_settings
 from app.core.db import database
 from app.core.exceptions import register_exception_handlers
@@ -33,11 +34,16 @@ def create_app() -> FastAPI:
         ),
     )
 
-    # En desarrollo abrimos CORS a todo; en producción restringe esto al
-    # origen real de tu app Streamlit.
+    # La caché va por dentro de CORS (el último middleware añadido es el más externo), para que las
+    # cabeceras CORS se calculen en cada petición y no se guarden con la respuesta.
+    if settings.cache_entries > 0:
+        app.add_middleware(ResponseCacheMiddleware, max_entries=settings.cache_entries)
+
+    # CORS: solo los orígenes configurados (ACB_CORS_ORIGINS). Streamlit llama a la API desde el
+    # servidor, no desde el navegador, así que no necesita CORS; esto es para otros clientes web.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
         allow_methods=["GET"],
         allow_headers=["*"],
     )

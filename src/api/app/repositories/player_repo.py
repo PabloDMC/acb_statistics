@@ -43,7 +43,8 @@ def get_basic_info(cur: duckdb.DuckDBPyConnection, player_id: int) -> dict | Non
             p.latest_club_id AS current_club_id, c.club_name AS current_club_name,
             p.first_edition_id, ef.season_name AS first_season_name,
             p.last_edition_id, el.season_name AS last_season_name,
-            p.editions AS seasons
+            p.editions AS seasons,
+            p.birth_date, p.birth_place, p.birth_country, p.nationality, p.height_m
         FROM main_marts.dim_players p
         LEFT JOIN (
             SELECT team_id, any_value(full_name) AS full_name FROM main_marts.dim_teams GROUP BY team_id

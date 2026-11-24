@@ -1,0 +1,14 @@
+# Solo lo necesario para SERVIR la app (API + Streamlit), sin ingesta ni dbt: es lo que se
+# instala en el contenedor de despliegue. Para desarrollar, usa requirements.txt.
+fastapi>=0.115
+uvicorn[standard]>=0.30
+duckdb>=1.0
+pydantic>=2.7
+pydantic-settings>=2.3
+python-dotenv>=1.0
+requests>=2.31
+pandas>=2.0
+streamlit>=1.40
+plotly>=5.20
+tzdata
+huggingface_hub>=0.24

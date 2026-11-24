@@ -1,5 +1,6 @@
 """
-Actualiza los datos de punta a punta: ingesta de la API de la ACB -> dbt build -> resumen.
+Actualiza los datos de punta a punta: ingesta de la API de la ACB -> fichas de jugadores nuevos
+(web de la ACB) -> dbt build -> resumen.
 
 Uso, desde la raíz del proyecto y con el entorno virtual activado (la API debe estar PARADA,
 porque dbt necesita escribir en la base de datos):
@@ -47,6 +48,18 @@ def run_ingest(editions: list[int] | None) -> bool:
     return True
 
 
+def run_player_bio() -> None:
+    """Fichas biográficas de los jugadores nuevos (web de la ACB). Un fallo aquí no para la
+    actualización: las fichas son un complemento."""
+    _title("Fichas de jugadores nuevos (web de la ACB)")
+    from src.ingestion.player_bio import run as bio_run
+
+    try:
+        bio_run()
+    except Exception as exc:
+        print(f"AVISO: no se pudieron descargar las fichas: {exc}")
+
+
 def _dbt_executable() -> str:
     # el dbt del mismo entorno virtual que ejecuta este script
     scripts_dir = Path(sys.executable).parent
@@ -60,9 +73,11 @@ def _dbt_executable() -> str:
     return found
 
 
-def run_dbt(full_refresh: bool, select: str | None) -> bool:
+def run_dbt(full_refresh: bool, select: str | None, threads: int) -> bool:
     _title("2/2  dbt build" + (" --full-refresh" if full_refresh else ""))
-    cmd = [_dbt_executable(), "build"]
+    # Pocos hilos de dbt: cada modelo de staging lee GB de JSON y DuckDB ya usa todos los núcleos
+    # dentro de cada consulta; varios a la vez apenas ganan tiempo y multiplican la memoria.
+    cmd = [_dbt_executable(), "build", "--threads", str(threads)]
     if full_refresh:
         cmd.append("--full-refresh")
     if select:
@@ -104,14 +119,17 @@ def main() -> int:
     parser.add_argument("--skip-ingest", action="store_true", help="No descargar nada, solo dbt")
     parser.add_argument("--full-refresh", action="store_true", help="dbt build --full-refresh")
     parser.add_argument("--select", help="Selector de dbt (por defecto, todo el proyecto)")
+    parser.add_argument("--threads", type=int, default=2, help="Hilos de dbt (por defecto 2; 1 si falta memoria)")
     args = parser.parse_args()
 
     start = time.time()
     ok = True
     if not args.skip_ingest:
         ok = run_ingest(args.editions)
+        if ok:
+            run_player_bio()
     if ok:
-        ok = run_dbt(args.full_refresh, args.select)
+        ok = run_dbt(args.full_refresh, args.select, args.threads)
         summarize()
     print(f"\n{'OK' if ok else 'FALLÓ'} en {time.time() - start:.0f} s")
     return 0 if ok else 1

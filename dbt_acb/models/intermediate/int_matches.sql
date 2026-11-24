@@ -5,6 +5,9 @@
     cluster_by=['edition_id', 'competition_id', 'match_id']
 ) }}
 
+-- Una fila por partido del calendario (matchlist), jugado o no. Los partidos aún sin cabecera
+-- (programados) toman fecha, equipos y marcador del propio calendario; is_played distingue los
+-- terminados, que son los únicos que cuentan en estadísticas y clasificación.
 WITH mh AS (
     SELECT *
     FROM {{ ref('stg_apiacb__match_header') }}
@@ -31,26 +34,26 @@ bs AS (
 SELECT
     ml.match_id,
     ml.edition_id,
-    mh.competition_id,
+    coalesce(mh.competition_id, ml.competition_id) AS competition_id,
     ml.week_id,
 
-    mh.match_start_time,
-    mh.match_status,
+    coalesce(mh.match_start_time, ml.match_start_time) AS match_start_time,
+    coalesce(mh.match_status, ml.match_status) AS match_status,
     mh.is_on_half_time,
     mh.time_left,
     mh.current_quarter,
-    mh.current_home_score,
-    mh.current_away_score,
+    coalesce(mh.current_home_score, ml.home_score) AS current_home_score,
+    coalesce(mh.current_away_score, ml.away_score) AS current_away_score,
     mh.current_home_bonus,
     mh.current_away_bonus,
     mh.highlights_video_url,
 
-    mh.home_team_id,
-    mh.home_team_club_id,
-    mh.home_team_full_name,
+    coalesce(mh.home_team_id, ml.home_team_id) AS home_team_id,
+    coalesce(mh.home_team_club_id, ml.home_club_id) AS home_team_club_id,
+    coalesce(mh.home_team_full_name, ml.home_team_full_name) AS home_team_full_name,
     mh.home_team_short_name,
-    mh.home_team_abbr,
-    mh.home_team_logo,
+    coalesce(mh.home_team_abbr, ml.home_team_abbr) AS home_team_abbr,
+    coalesce(mh.home_team_logo, ml.home_team_logo) AS home_team_logo,
     mh.home_team_logo_alt,
     mh.home_team_secondary_logo,
     mh.home_team_primary_color,
@@ -58,12 +61,12 @@ SELECT
     mh.home_team_shirt_color,
     mh.home_team_shirt_text_color,
 
-    mh.away_team_id,
-    mh.away_team_club_id,
-    mh.away_team_full_name,
+    coalesce(mh.away_team_id, ml.away_team_id) AS away_team_id,
+    coalesce(mh.away_team_club_id, ml.away_club_id) AS away_team_club_id,
+    coalesce(mh.away_team_full_name, ml.away_team_full_name) AS away_team_full_name,
     mh.away_team_short_name,
-    mh.away_team_abbr,
-    mh.away_team_logo,
+    coalesce(mh.away_team_abbr, ml.away_team_abbr) AS away_team_abbr,
+    coalesce(mh.away_team_logo, ml.away_team_logo) AS away_team_logo,
     mh.away_team_logo_alt,
     mh.away_team_secondary_logo,
     mh.away_team_primary_color,
@@ -90,15 +93,17 @@ SELECT
     ml.subphase_number,
     ml.match_grouping,
 
+    (coalesce(mh.match_status, ml.match_status) = 'FINALIZED') AS is_played,
+
     mh.cat_insert_date
 
 FROM ml
 LEFT JOIN mh USING (match_id)
 LEFT JOIN bs AS home_bs
     ON home_bs.match_id = ml.match_id
-   AND home_bs.team_id = mh.home_team_id
+   AND home_bs.team_id = coalesce(mh.home_team_id, ml.home_team_id)
    AND home_bs.edition_id = ml.edition_id
 LEFT JOIN bs AS away_bs
     ON away_bs.match_id = ml.match_id
-   AND away_bs.team_id = mh.away_team_id
+   AND away_bs.team_id = coalesce(mh.away_team_id, ml.away_team_id)
    AND away_bs.edition_id = ml.edition_id

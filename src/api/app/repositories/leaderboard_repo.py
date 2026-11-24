@@ -51,6 +51,18 @@ def _source_table(table: str, column: str, per: str | None) -> str:
     play-by-play incompleto, dividir el total de la temporada entre las posesiones de solo
     algunos partidos inflaba el valor (p. ej. 2017-18).
     """
+    if per == "per_game" and table == "agg_team_totals":
+        # algunos partidos antiguos solo tienen el resultado: la media por partido de equipo se
+        # calcula sobre los partidos con boxscore
+        return f"""(
+        SELECT edition_id, competition_id, competition_phase, team_id,
+               COUNT(*) AS games,
+               SUM({column}) AS {column},
+               SUM(offensive_possessions) AS offensive_possessions
+        FROM main_marts.fact_team_games
+        WHERE has_boxscore
+        GROUP BY edition_id, competition_id, competition_phase, team_id
+    )"""
     if per != "per_100_poss":
         return f"main_marts.{table}"
     if table == "agg_player_totals":

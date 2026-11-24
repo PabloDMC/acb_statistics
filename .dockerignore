@@ -1,0 +1,9 @@
+.venv
+.git
+data
+logs
+dbt_acb
+prototypes
+**/__pycache__
+*.log
+.env

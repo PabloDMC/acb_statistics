@@ -34,10 +34,12 @@ for col, side in ((home_col, "home"), (away_col, "away")):
         team = m[f"{side}_team"]
         if st.button(team["name"], key=f"goto_{side}", icon=":material/groups:"):
             nav.goto("equipo", id=team["id"])
+pending = m.get("is_played") is False
+score_txt = "vs" if pending else f"{m['home_score']} – {m['away_score']}"
 with score_col:
     st.markdown(
         f"<div style='text-align:center;white-space:nowrap;font-size:2.6rem;font-weight:700;"
-        f"padding-top:1.2rem'>{m['home_score']} – {m['away_score']}</div>",
+        f"padding-top:1.2rem'>{score_txt}</div>",
         unsafe_allow_html=True,
     )
 
@@ -47,6 +49,10 @@ extra = [
     ("Árbitros: " + ", ".join(m["referees"])) if m.get("referees") else None,
 ]
 st.caption(" · ".join(e for e in extra if e))
+
+if pending:
+    st.info("Partido pendiente de jugarse" + (f" ({components.local_dt(m['date'])}, hora peninsular)." if m.get("date") else "."))
+    st.stop()
 
 # parciales por cuarto
 def _qname(q: int) -> str:
@@ -60,9 +66,20 @@ if box["quarters"]:
     ])
     st.dataframe(qdf, hide_index=True)
 
-section = components.sections(
-    ['Boxscore', 'Evolución', 'Jugada a jugada', 'Rotaciones', 'Tiro', 'Quintetos'], key="mt_section"
-)
+if m.get("has_boxscore") is False:
+    st.info("De este partido la ACB solo conserva el resultado (no hay boxscore).")
+    st.stop()
+
+_sections = ['Boxscore']
+if m.get("has_play_by_play") is not False:
+    _sections += ['Evolución', 'Jugada a jugada', 'Rotaciones']
+if m.get("has_shots") is not False:
+    _sections += ['Tiro']
+if m.get("has_play_by_play") is not False:
+    _sections += ['Quintetos']
+section = components.sections(_sections, key="mt_section")
+if len(_sections) == 1:
+    st.caption(components.PBP_ONLY_NOTE)
 
 # ---------------------------------------------------------------------------
 # Boxscore
@@ -110,7 +127,8 @@ def _team_table(team: dict) -> pd.DataFrame:
 
 
 if section == "Boxscore":
-    q_opts = [0, *[q["quarter"] for q in box["quarters"]]]
+    # el boxscore por cuarto sale de la jugada a jugada: sin ella, solo el del partido
+    q_opts = [0, *[q["quarter"] for q in box["quarters"]]] if m.get("has_play_by_play") is not False else [0]
     q_sel = st.segmented_control(
         "Periodo", options=q_opts, default=0, key=f"box_q_{match_id}",
         format_func=lambda q: "Partido" if q == 0 else _qname(q),

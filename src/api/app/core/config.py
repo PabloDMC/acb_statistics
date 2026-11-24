@@ -41,6 +41,13 @@ class Settings(BaseSettings):
     default_page_size: int = 50
     max_page_size: int = 500
 
+    # Orígenes web que pueden llamar a la API desde un navegador (separados por comas). En el
+    # despliegue la API solo se usa desde Streamlit dentro del mismo contenedor, así que basta
+    # con el valor por defecto; "*" solo para desarrollo.
+    cors_origins: str = "http://localhost:8501,http://127.0.0.1:8501"
+    # Caché de respuestas en memoria (ver core/cache.py); 0 la desactiva
+    cache_entries: int = 4096
+
     project_name: str = "ACB Statistics API"
     version: str = "0.1.0"
 

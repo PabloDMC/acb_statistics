@@ -16,7 +16,10 @@ sources:
         description: >
           Schedules and fixture definitions grouped by rounds or phases.
         meta:
-          external_location: "{{ var('landing_data_dir') }}/apiacb_matchlist/*.json"
+          # Se lee cada fichero como JSON crudo (sin inferir esquema) y el modelo extrae los campos.
+          # Inferir el esquema fallaba: los calendarios de jornadas sin jugar traen los equipos con
+          # menos campos, y leer el esquema de los ~2.000 ficheros a la vez agotaba la memoria.
+          external_location: "read_json_objects('{{ var('landing_data_dir') }}/apiacb_matchlist/*.json', format='auto')"
 
       - name: match_headers
         description: >
@@ -41,3 +44,12 @@ sources:
           Chronological live commentary log.
         meta:
           external_location: "{{ var('landing_data_dir') }}/apiacb_play_by_play/*.json"
+
+      - name: player_bios
+        description: >
+          Fichas biográficas de jugador sacadas de la web de la ACB (src/ingestion/player_bio.py).
+        meta:
+          # DuckDB adivina la fecha "dd-mm-aaaa" como DATE: se le fija el formato para que no la
+          # confunda con mes-día. Sin union_by_name: con ~1.500 ficheros abre todos a la vez para
+          # leer su esquema y agota la memoria (todas las fichas tienen los mismos campos).
+          external_location: "read_json('{{ var('landing_data_dir') }}/acbweb_player_bio/*.json', format='newline_delimited', dateformat='%d-%m-%Y')"
