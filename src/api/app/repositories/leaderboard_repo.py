@@ -73,6 +73,7 @@ def _source_table(table: str, column: str, per: str | None) -> str:
         SELECT edition_id, competition_id, competition_phase, {keys},
                {games} AS games,
                SUM({column}) AS {column},
+               SUM(seconds) AS seconds,
                SUM(offensive_possessions) AS offensive_possessions
         FROM main_marts.{fact}
         WHERE has_possessions
@@ -88,6 +89,7 @@ def player_leaderboard(
     min_games: int,
     scope: str,
     per: str | None,
+    min_minutes: float = 0,
 ) -> list[dict]:
     column = PLAYER_LEADERBOARD_METRICS[metric]  # validado antes en el service
 
@@ -116,6 +118,9 @@ def player_leaderboard(
 
         fb.clauses.append("t.games >= ?")
         fb.params.append(min_games)
+        if min_minutes:
+            fb.clauses.append("t.seconds >= ? * 60 * t.games")
+            fb.params.append(min_minutes)
         fb.clauses.append(f"({value_expr}) IS NOT NULL")
 
         cur.execute(
@@ -160,12 +165,12 @@ def player_leaderboard(
             {base_join}
             {fb.where_sql()}
             GROUP BY t.player_id
-            HAVING SUM(t.games) >= ? AND value IS NOT NULL
+            HAVING SUM(t.games) >= ? AND SUM(t.seconds) >= ? * 60 * SUM(t.games) AND value IS NOT NULL
         )
         ORDER BY value DESC
         {pagination_sql(page)}
         """,
-        [*fb.params, min_games],
+        [*fb.params, min_games, min_minutes],
     )
     rows = cursor_to_dicts(cur)
     for i, row in enumerate(rows, start=1 + page.offset):

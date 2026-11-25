@@ -35,6 +35,7 @@ def get_player_stats(
         "pista; solo partidos con play-by-play). Solo escala las columnas contables.",
     ),
     min_games: int = Query(default=0, ge=0),
+    min_minutes: float = Query(default=0, ge=0, description="Mínimo de minutos por partido jugado"),
     player_id: int | None = Query(default=None, description="Solo este jugador (todas sus temporadas si no se filtra edición)"),
 ):
     """
@@ -42,7 +43,7 @@ def get_player_stats(
     con todas las columnas (tiro, rebote, avanzadas, ratings). Con `team_id` es la plantilla de un
     equipo. `sort` acepta cualquier columna de `stats` (o `name`, `games`, `minutes`).
     """
-    items, total = stats_service.player_stats(cur, filters, per, min_games, page, player_id)
+    items, total = stats_service.player_stats(cur, filters, per, min_games, page, player_id, min_minutes)
     return _page(items, total, page)
 
 

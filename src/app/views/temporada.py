@@ -23,7 +23,7 @@ def _scales(labels: dict) -> list[str]:
 
 
 if not _pbp:  # si venía elegida de otra temporada, se vuelve a la escala por defecto
-    for _k in ("lead_per", "pl_per", "tm_per"):
+    for _k in ("pl_per", "tm_per"):
         if str(st.session_state.get(_k, "")).startswith("per_100"):
             del st.session_state[_k]
 
@@ -34,8 +34,11 @@ st.caption(sel["competition_name"] + (f" · {sel['competition_phase']}" if sel["
 # Clasificación y evolución: siempre de la liga regular si la fase elegida no tiene clasificación
 std_phase = sel["competition_phase"] or ("LR" if "LR" in sel["phases"] else None)
 
-tab_std, tab_evo, tab_cal, tab_lead, tab_players, tab_teams = st.tabs(
-    ["Clasificación", "Evolución", "Calendario", "Líderes", "Jugadores", "Equipos"]
+# Temporada = las tablas completas de la temporada (clasificación, calendario y estadísticas de TODOS
+# los jugadores y equipos, ordenables por cualquier columna). Los rankings (los mejores en algo,
+# récords, clutch, parejas, histórico) están en la página Líderes y récords.
+tab_std, tab_evo, tab_cal, tab_players, tab_teams = st.tabs(
+    ["Clasificación", "Evolución", "Calendario", "Estadísticas de jugadores", "Estadísticas de equipos"]
 )
 
 # ---------------------------------------------------------------------------
@@ -138,62 +141,19 @@ with tab_evo:
         st.plotly_chart(fig, use_container_width=True)
 
 # ---------------------------------------------------------------------------
-# Líderes
-# ---------------------------------------------------------------------------
-LEADER_METRICS = [
-    ("points", "Puntos"), ("rebounds", "Rebotes"), ("assists", "Asistencias"),
-    ("steals", "Robos"), ("blocks", "Tapones"), ("rating", "Valoración"),
-]
-PER_LABELS = {"per_game": "Por partido", "total": "Totales", "per_40_min": "Por 40 min", "per_100_poss": "Por 100 posesiones"}
-
-with tab_lead:
-    st.caption("Clutch, récords en un partido, parejas asistente-anotador y líderes históricos: página «Líderes y récords».")
-    c1, c2 = st.columns([3, 1])
-    per = c1.segmented_control(
-        "Escala", options=_scales(PER_LABELS), format_func=PER_LABELS.get, default="per_game", key="lead_per"
-    ) or "per_game"
-    min_games = c2.number_input("Mínimo de partidos", min_value=0, max_value=60, value=5, step=1, key="lead_min")
-    cols = st.columns(3)
-    for i, (metric, label) in enumerate(LEADER_METRICS):
-        with cols[i % 3]:
-            st.markdown(f"**{label}**")
-            lb = api.get(
-                "/leaderboards/players", metric=metric, per=per, min_games=min_games, limit=10,
-                **filters.api_filters(sel),
-            ) or []
-            if not lb:
-                st.caption("Sin datos.")
-                continue
-            df = pd.DataFrame([
-                {
-                    "#": e["rank"],
-                    label: e["value"],
-                    "Jugador": e["player"]["name"],
-                    "Equipo": e["club_team"]["team"]["name"],
-                    "_id": e["player"]["id"],
-                }
-                for e in lb
-            ])
-            row = components.selectable_table(
-                df.drop(columns="_id"),
-                key=f"lead_{metric}",
-                column_config={label: st.column_config.NumberColumn(label, format="%d" if per == "total" else "%.1f")},
-            )
-            if row is not None:
-                nav.goto("jugador", id=int(df.iloc[row]["_id"]))
-
-# ---------------------------------------------------------------------------
 # Tabla de jugadores
 # ---------------------------------------------------------------------------
 P_PER = {"per_game": "Por partido", "total": "Totales", "per_36": "Por 36 min", "per_100": "Por 100 posesiones"}
 
 with tab_players:
-    c1, c2, c3 = st.columns([2, 2, 1])
+    c1, c2, c3, c4 = st.columns([2, 2, 1, 1])
     p_per = c1.segmented_control("Escala", options=_scales(P_PER), format_func=P_PER.get, default="per_game", key="pl_per") or "per_game"
     group = c2.segmented_control("Columnas", options=list(tables.PLAYER_GROUPS), default="Básicas", key="pl_group") or "Básicas"
     p_min = c3.number_input("Mín. partidos", min_value=0, max_value=60, value=5, step=1, key="pl_min")
+    p_minmin = c4.number_input("Mín. min/partido", min_value=0, max_value=40, value=0, step=5, key="pl_minmin")
 
-    items = api.get_all("/stats/players", per=p_per, min_games=p_min, sort="-points", **filters.api_filters(sel))
+    items = api.get_all("/stats/players", per=p_per, min_games=p_min, min_minutes=p_minmin or None, sort="-points",
+                        **filters.api_filters(sel))
     if not items:
         st.info("Sin datos para esta selección.")
     else:
@@ -211,7 +171,8 @@ with tab_players:
         if sel["competition_phase"]:
             df = df.drop(columns="Fase")
         row = components.selectable_table(df.drop(columns="_id"), key="season_players", column_config=config, height=600)
-        st.caption(f"{len(df)} jugadores. Pulsa una fila para ver su página; pulsa una cabecera para ordenar.")
+        st.caption(f"{len(df)} jugadores. Pulsa una fila para ver su página; pulsa una cabecera para ordenar. "
+                   "Los 10 mejores de cada estadística, récords y clutch: página «Líderes y récords».")
         if row is not None:
             nav.goto("jugador", id=int(df.iloc[row]["_id"]))
 
@@ -267,8 +228,10 @@ with tab_cal:
         played_rounds = [r for r in rounds if any(_played(m) for m in matches
                                                   if (m["context"]["competition_phase"] or "", m.get("round") or 0) == r)]
         default = played_rounds[-1] if played_rounds else rounds[0]
+        # al cambiar de temporada, la jornada guardada puede no existir: se vuelve a la última jugada
+        filters._keep_valid("cal_round", rounds, default)
         rnd = st.selectbox(
-            "Jornada", options=rounds, index=rounds.index(default), key="cal_round",
+            "Jornada", options=rounds, key="cal_round",
             format_func=lambda r: (f"{r[0]} · " if not sel["competition_phase"] else "") + f"Jornada {r[1]}",
         )
         day = [m for m in matches if (m["context"]["competition_phase"] or "", m.get("round") or 0) == rnd]

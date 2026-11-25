@@ -52,11 +52,12 @@ def player_leaderboard(
     min_games: int,
     scope: str,
     per: str,
+    min_minutes: float = 0,
 ) -> list[PlayerLeaderboardEntry]:
     _validate_metric(metric, PLAYER_LEADERBOARD_METRICS)
     _validate_scope_and_per(scope, per, metric, PLAYER_COUNTABLE_METRICS)
 
-    rows = leaderboard_repo.player_leaderboard(cur, metric, filters, page, min_games, scope, per)
+    rows = leaderboard_repo.player_leaderboard(cur, metric, filters, page, min_games, scope, per, min_minutes)
 
     ids = [row["player_id"] for row in rows]
     edition_id = filters.edition_id if scope == "season" else None
