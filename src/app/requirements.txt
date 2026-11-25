@@ -1,5 +1,5 @@
 # Dependencias de la app en Streamlit Community Cloud (busca primero requirements.txt junto al
-# punto de entrada): API + Streamlit, sin ingesta ni dbt. Igual que requirements-serve.txt.
+# punto de entrada): API + Streamlit, sin ingesta ni dbt. También lo usa deploy/Dockerfile.
 fastapi>=0.115
 uvicorn[standard]>=0.30
 duckdb>=1.0
