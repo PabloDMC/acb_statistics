@@ -11,7 +11,8 @@ import nav
 sel = filters.current()
 
 st.title("ACB Statistics")
-st.caption("Estadísticas de la Liga Endesa, la Copa del Rey y la Supercopa desde 2016-17.")
+st.caption("Estadísticas de la Liga Endesa, la Copa del Rey y la Supercopa desde 1983-84. Jugada a jugada, "
+           "quintetos, rotaciones y cartas de tiro, desde 2016-17.")
 
 components.search_box(key="home_search")
 
@@ -43,6 +44,9 @@ with left:
             column_config={"Logo": st.column_config.ImageColumn("", width="small")},
             height=35 * len(df) + 38,
         )
+        if not standings.get("official", True):
+            st.caption("Esa temporada la fase regular se jugó en grupos o en varias fases: es el balance de cada "
+                       "equipo, no la clasificación oficial.")
         if row is not None:
             nav.goto("equipo", id=int(df.iloc[row]["_id"]))
     else:

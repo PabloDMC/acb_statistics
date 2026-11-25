@@ -56,41 +56,81 @@ def render(flt: dict, key: str, historic: bool) -> None:
         _pairs(flt, key)
 
 
+LIMITS = [10, 25, 50, 100, 250]
+
+
+def _limit(col, key: str, default: int = 25) -> int:
+    return col.selectbox("Filas", LIMITS, index=LIMITS.index(default), key=key)
+
+
 def _general(flt: dict, key: str, historic: bool) -> None:
-    c1, c2 = st.columns([3, 1])
-    per = c1.segmented_control("Escala", options=list(PER_LABELS), format_func=PER_LABELS.get,
-                               default="total" if historic else "per_game", key=f"{key}_per") or "per_game"
+    c1, c2, c3, c4 = st.columns([3, 1, 1, 1])
+    view = c1.segmented_control("Vista", options=["summary", "ranking"], default="summary", key=f"{key}_view",
+                                format_func=lambda v: "Resumen (10 mejores de cada)" if v == "summary"
+                                else "Ranking de una estadística") or "summary"
     min_games = c2.number_input("Mín. partidos", min_value=0, value=50 if historic else 5, step=5, key=f"{key}_min")
+    min_minutes = c3.number_input("Mín. min/partido", min_value=0, max_value=40, value=0, step=5, key=f"{key}_minmin")
+    per = st.segmented_control("Escala", options=list(PER_LABELS), format_func=PER_LABELS.get,
+                               default="total" if historic else "per_game", key=f"{key}_per") or "per_game"
     scope = "career" if historic else "season"
-    cols = st.columns(4)
-    for i, (metric, label) in enumerate(GENERAL):
-        if i == 4:
-            cols = st.columns(4)
-        with cols[i % 4]:
-            st.markdown(f"**{label}**")
-            lb = api.get("/leaderboards/players", metric=metric, per=per, min_games=min_games, limit=10,
-                         scope=scope, **flt) or []
-            if not lb:
-                st.caption("Sin datos.")
-                continue
+    fmt = "%d" if per == "total" else "%.1f"
+    params = dict(per=per, min_games=min_games, min_minutes=min_minutes or None, scope=scope, **flt)
+
+    if view == "summary":
+        cols = st.columns(4)
+        for i, (metric, label) in enumerate(GENERAL):
+            if i == 4:
+                cols = st.columns(4)
+            with cols[i % 4]:
+                st.markdown(f"**{label}**")
+                lb = api.get("/leaderboards/players", metric=metric, limit=10, **params) or []
+                if not lb:
+                    st.caption("Sin datos.")
+                    continue
+                df = pd.DataFrame([
+                    {"Jugador": e["player"]["name"], label: e["value"], "_id": e["player"]["id"]}
+                    for e in lb
+                ])
+                row = components.selectable_table(
+                    df.drop(columns="_id"), key=f"{key}_g_{metric}",
+                    column_config={label: st.column_config.NumberColumn(label, format=fmt)},
+                )
+                _goto_from(df, row, "jugador")
+    else:
+        metric = c4.selectbox("Estadística", [m for m, _ in GENERAL], format_func=dict(GENERAL).get, key=f"{key}_metric")
+        label = dict(GENERAL)[metric]
+        limit = _limit(c4, f"{key}_limit", 50)
+        lb = api.get("/leaderboards/players", metric=metric, limit=limit, **params) or []
+        if not lb:
+            st.info("Sin datos con estos filtros.")
+        else:
             df = pd.DataFrame([
-                {"Jugador": e["player"]["name"], label: e["value"], "_id": e["player"]["id"]}
+                {
+                    "#": e["rank"],
+                    "Jugador": e["player"]["name"],
+                    **({} if historic else {"Equipo": e["club_team"]["team"]["name"]}),
+                    "PJ": e.get("games"),
+                    label: e["value"],
+                    "_id": e["player"]["id"],
+                }
                 for e in lb
             ])
             row = components.selectable_table(
-                df.drop(columns="_id"), key=f"{key}_g_{metric}",
-                column_config={label: st.column_config.NumberColumn(label, format="%d" if per == "total" else "%.1f")},
+                df.drop(columns="_id"), key=f"{key}_rank_{metric}", height=min(35 * len(df) + 38, 700),
+                column_config={label: st.column_config.NumberColumn(label, format=fmt)},
             )
             _goto_from(df, row, "jugador")
     if historic:
-        st.caption("Histórico: suma de toda la carrera dentro de los filtros (todas las temporadas desde 2016-17).")
+        st.caption("Histórico: suma de toda la carrera dentro de los filtros (todas las temporadas desde 1983-84; "
+                   "robos, tapones y otras estadísticas solo cuentan donde la ACB las registraba).")
 
 
 def _clutch(flt: dict, key: str) -> None:
-    c1, c2 = st.columns([3, 1])
+    c1, c2, c3 = st.columns([3, 1, 1])
     metric = c1.selectbox("Estadística", options=list(CLUTCH), format_func=CLUTCH.get, key=f"{key}_c_metric")
     min_att = c2.number_input("Mín. intentos (para %)", min_value=0, value=20, step=5, key=f"{key}_c_min")
-    lb = api.get("/leaderboards/clutch", metric=metric, min_attempts=min_att, limit=25, **flt) or []
+    limit = _limit(c3, f"{key}_c_limit")
+    lb = api.get("/leaderboards/clutch", metric=metric, min_attempts=min_att, limit=limit, **flt) or []
     if not lb:
         st.info("Sin datos de clutch.")
         return
@@ -114,7 +154,7 @@ def _clutch(flt: dict, key: str) -> None:
         for e in lb
     ])
     row = components.selectable_table(
-        df.drop(columns="_id"), key=f"{key}_c_table",
+        df.drop(columns="_id"), key=f"{key}_c_table", height=min(35 * len(df) + 38, 700),
         column_config={CLUTCH[metric]: st.column_config.NumberColumn(CLUTCH[metric], format="%.1f" if is_pct else "%d")},
     )
     st.caption("Totales en clutch: últimos 5 minutos del último cuarto y prórrogas con el marcador a 5 puntos o menos. "
@@ -123,12 +163,13 @@ def _clutch(flt: dict, key: str) -> None:
 
 
 def _records(flt: dict, key: str) -> None:
-    c1, c2 = st.columns([1, 2])
+    c1, c2, c3 = st.columns([1, 2, 1])
     target = c1.segmented_control("De", options=["players", "teams"], default="players", key=f"{key}_r_target",
                                   format_func=lambda t: "Jugadores" if t == "players" else "Equipos") or "players"
     options = PLAYER_RECORDS if target == "players" else TEAM_RECORDS
     metric = c2.selectbox("Estadística", options=list(options), format_func=options.get, key=f"{key}_r_metric_{target}")
-    recs = api.get("/leaderboards/game-records", target=target, metric=metric, limit=25, **flt) or []
+    limit = _limit(c3, f"{key}_r_limit")
+    recs = api.get("/leaderboards/game-records", target=target, metric=metric, limit=limit, **flt) or []
     if not recs:
         st.info("Sin datos.")
         return
@@ -149,7 +190,7 @@ def _records(flt: dict, key: str) -> None:
         for r in recs
     ])
     row = components.selectable_table(
-        df.drop(columns="_id"), key=f"{key}_r_table",
+        df.drop(columns="_id"), key=f"{key}_r_table", height=min(35 * len(df) + 38, 700),
         column_config={options[metric]: st.column_config.NumberColumn(options[metric], format="%.1f" if metric in ("seconds", "offensive_rating") else "%d")},
     )
     st.caption("Pulsa una fila para abrir el partido.")
@@ -157,12 +198,13 @@ def _records(flt: dict, key: str) -> None:
 
 
 def _pairs(flt: dict, key: str) -> None:
-    c1, c2 = st.columns([3, 2])
+    c1, c2, c3 = st.columns([3, 2, 1])
     kind = c1.segmented_control("Tipo de canasta", options=list(KINDS), format_func=KINDS.get, default="all",
                                 key=f"{key}_p_kind") or "all"
     sort = c2.segmented_control("Ordenar por", options=["plays", "points"], default="plays", key=f"{key}_p_sort",
                                 format_func=lambda s: "Canastas asistidas" if s == "plays" else "Puntos") or "plays"
-    pairs = api.get("/leaderboards/assist-pairs", kind=kind, sort=sort, limit=25, **flt) or []
+    limit = _limit(c3, f"{key}_p_limit")
+    pairs = api.get("/leaderboards/assist-pairs", kind=kind, sort=sort, limit=limit, **flt) or []
     if not pairs:
         st.info("Sin datos (hace falta la jugada a jugada).")
         return
@@ -180,6 +222,6 @@ def _pairs(flt: dict, key: str) -> None:
         }
         for p in pairs
     ])
-    st.dataframe(df, hide_index=True, use_container_width=True, height=35 * len(df) + 38)
+    st.dataframe(df, hide_index=True, use_container_width=True, height=min(35 * len(df) + 38, 700))
     st.caption("Totales. Una asistencia que acaba en tiros libres cuenta como una (los puntos son los libres anotados). "
                "Solo partidos con jugada a jugada.")

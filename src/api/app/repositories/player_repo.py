@@ -205,8 +205,10 @@ def get_game_log(
     where_sql = fb.where_sql()
 
     sort_col, direction = resolve_sort(
-        page.sort, {"points", "rating", "match_id", "plus_minus"}, default="match_id"
+        page.sort, {"date", "points", "rating", "match_id", "plus_minus"}, default="date"
     )
+    # por fecha (los ids de partido no siguen el orden cronológico en las temporadas antiguas)
+    order_expr = "mm.match_start_time" if sort_col == "date" else f"g.{sort_col}"
 
     cur.execute(
         f"""
@@ -234,7 +236,7 @@ def get_game_log(
             ON opp.team_id = g.opponent_team_id AND opp.edition_id = g.edition_id AND opp.competition_id = g.competition_id
         LEFT JOIN main_marts.dim_matches mm ON mm.match_id = g.match_id
         {where_sql}
-        ORDER BY g.{sort_col} {direction}
+        ORDER BY {order_expr} {direction}, mm.match_start_time {direction}, g.match_id {direction}
         {pagination_sql(page)}
         """,
         fb.params,

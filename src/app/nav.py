@@ -19,6 +19,9 @@ PAGES = {
     "partido": st.Page("views/partido.py", title="Partido", icon=":material/sports_basketball:", url_path="partido"),
 }
 
+# páginas que usan la temporada de la barra lateral
+SEASON_PAGES = {PAGES["inicio"].title, PAGES["temporada"].title, PAGES["lideres"].title}
+
 _PENDING = "_nav_pending"
 
 

@@ -59,6 +59,7 @@ def get_player_leaderboard(
     page: PageDep,
     metric: PlayerMetric = Query(..., description="Métrica por la que ordenar"),
     min_games: int = Query(default=1, ge=0, description="Filtra jugadores con pocos partidos jugados"),
+    min_minutes: float = Query(default=0, ge=0, description="Mínimo de minutos por partido jugado"),
     scope: LeaderboardScope = Query(
         default="season",
         description="'season': mejores marcas por temporada/fase (si no filtras edition_id, es histórico). 'career': agregado de toda la carrera dentro de los filtros dados.",
@@ -68,7 +69,7 @@ def get_player_leaderboard(
         description="'total' (por defecto), 'per_game', 'per_100_poss' o 'per_40_min'. Solo aplica a métricas contables (points, assists, rebounds, steals, blocks, rating).",
     ),
 ):
-    return leaderboard_service.player_leaderboard(cur, metric.value, filters, page, min_games, scope, per)
+    return leaderboard_service.player_leaderboard(cur, metric.value, filters, page, min_games, scope, per, min_minutes)
 
 
 @router.get("/teams", response_model=list[TeamLeaderboardEntry])

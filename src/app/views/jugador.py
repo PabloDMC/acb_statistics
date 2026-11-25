@@ -6,6 +6,7 @@ import streamlit as st
 import api
 import charts
 import components
+import filters
 import nav
 import tables
 
@@ -48,22 +49,19 @@ components.entity_header(
     info.get("headshot_no_background_url") or info.get("headshot_image_url"),
 )
 
-# filas de temporada (todas): base de la pestaña Temporadas y del selector de temporada
+# filas de temporada (todas, sin filtrar): de aquí salen las opciones de los filtros
 season_rows_total = api.get_all("/stats/players", player_id=player_id, per="total", sort="-edition_id")
-editions = sorted({(r["context"]["edition"]["id"], r["context"]["edition"]["name"]) for r in season_rows_total}, reverse=True)
-if not editions:
+if not season_rows_total:
     st.info("Este jugador no tiene estadísticas.")
     st.stop()
-
-CAREER = 0
-ed_names = {CAREER: "Toda la carrera", **dict(editions)}
-edition_id = st.selectbox(
-    "Temporada",
-    options=[e for e, _ in editions] + [CAREER],
-    format_func=ed_names.get,
-    key=f"pl_edition_{player_id}",
-)
-ed_filter = None if edition_id == CAREER else edition_id
+contexts = [
+    {"edition_id": r["context"]["edition"]["id"], "edition_name": r["context"]["edition"]["name"],
+     "competition_id": r["context"]["competition"]["id"], "competition_name": r["context"]["competition"]["name"],
+     "phase": r["context"]["competition_phase"]}
+    for r in season_rows_total
+]
+# temporada, competición y fase: se aplican a todas las secciones (por defecto, Liga regular)
+flt = filters.entity_filters(contexts, key=f"pl_{player_id}")
 
 section = components.sections(['Temporadas', 'Partido a partido', 'Splits', 'Tiro', 'Impacto y quintetos', 'Máximos'], key="pl_section")
 
@@ -75,7 +73,10 @@ if section == "Temporadas":
     c1, c2 = st.columns([2, 2])
     per = c1.segmented_control("Escala", options=list(P_PER), format_func=P_PER.get, default="per_game", key="pl_s_per") or "per_game"
     group = c2.segmented_control("Columnas", options=list(tables.PLAYER_GROUPS), default="Básicas", key="pl_s_group") or "Básicas"
-    rows = season_rows_total if per == "total" else api.get_all("/stats/players", player_id=player_id, per=per)
+    rows = api.get_all("/stats/players", player_id=player_id, per=per, **flt)
+    if not rows:
+        st.info("Sin datos con estos filtros.")
+        st.stop()
     rows = sorted(rows, key=lambda r: (r["context"]["edition"]["id"], r["context"]["competition"]["id"],
                                        r["context"]["competition_phase"] or ""), reverse=True)
     base = {
@@ -95,13 +96,13 @@ if section == "Temporadas":
 # Partido a partido
 # ---------------------------------------------------------------------------
 if section == "Partido a partido":
-    games = api.get_all(f"/players/{player_id}/games", edition_id=ed_filter, sort="-match_id")
+    games = api.get_all(f"/players/{player_id}/games", sort="-date", **flt)
     if not games:
         st.info("Sin partidos.")
     else:
         df = pd.DataFrame([
             {
-                "Fecha": g.get("date"),
+                "Fecha": components.local_dt(g.get("date"), with_time=False),
                 "Temporada": g["context"]["edition"]["name"],
                 "Competición": g["context"]["competition"]["name"],
                 "Fase": g["context"]["competition_phase"],
@@ -136,7 +137,7 @@ if section == "Partido a partido":
 SPLIT_NAMES = {"location": "Local / visitante", "result": "Resultado", "role": "Titular / suplente",
                "month": "Mes", "opponent": "Rival", "clutch": "Clutch"}
 if section == "Splits":
-    splits = api.get(f"/players/{player_id}/splits", edition_id=ed_filter) or []
+    splits = api.get(f"/players/{player_id}/splits", **flt) or []
     if not splits:
         st.info("Sin datos.")
     else:
@@ -177,7 +178,7 @@ if section == "Splits":
 # Tiro: perfil y zonas frente a la media de la liga
 # ---------------------------------------------------------------------------
 if section == "Tiro":
-    shooting = api.get(f"/players/{player_id}/shooting", edition_id=ed_filter) or []
+    shooting = api.get(f"/players/{player_id}/shooting", **flt) or []
     if not shooting:
         st.info("Sin datos de tiro.")
     else:
@@ -185,7 +186,9 @@ if section == "Tiro":
             f"{s['context']['edition']['name']} · {s['context']['competition']['name']} {s['context']['competition_phase'] or ''} · {s['club_team']['team']['name']}"
             for s in shooting
         ]
-        idx = st.selectbox("Contexto", options=range(len(shooting)), format_func=lambda i: labels[i], key=f"pl_shoot_{player_id}")
+        filters._keep_valid(f"pl_shoot_{player_id}", list(range(len(shooting))), 0)
+        idx = st.selectbox("Contexto", options=list(range(len(shooting))), format_func=lambda i: labels[i],
+                           key=f"pl_shoot_{player_id}")
         s = shooting[idx]
         cols = st.columns(5)
         for col, (key, name) in zip(cols, [("field_goals", "TC"), ("two_pointers", "T2"), ("three_pointers", "T3"),
@@ -239,7 +242,7 @@ if section == "Tiro":
 # Impacto y quintetos
 # ---------------------------------------------------------------------------
 if section == "Impacto y quintetos":
-    impact = api.get(f"/players/{player_id}/impact", edition_id=ed_filter) or []
+    impact = api.get(f"/players/{player_id}/impact", **flt) or []
     if impact:
         df = pd.DataFrame([
             {
@@ -259,7 +262,7 @@ if section == "Impacto y quintetos":
         st.markdown("**Rendimiento del equipo con él en pista y en el banquillo** (por 100 posesiones)")
         st.dataframe(df, hide_index=True, use_container_width=True,
                      column_config={c: st.column_config.NumberColumn(c, format="%.1f") for c in df.columns[4:]})
-    lineups = api.get(f"/players/{player_id}/lineups", edition_id=ed_filter, limit=15) or []
+    lineups = api.get(f"/players/{player_id}/lineups", limit=15, **flt) or []
     if lineups:
         df = pd.DataFrame([
             {
@@ -287,7 +290,7 @@ HIGH_NAMES = {"points": "Puntos", "rebounds": "Rebotes", "assists": "Asistencias
               "free_throws_made": "Tiros libres", "plus_minus": "+/-", "rating": "Valoración",
               "seconds_played": "Minutos"}
 if section == "Máximos":
-    highs = api.get(f"/players/{player_id}/game-highs", edition_id=ed_filter)
+    highs = api.get(f"/players/{player_id}/game-highs", **flt)
     if not highs:
         st.info("Sin partidos.")
     else:

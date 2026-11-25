@@ -86,12 +86,17 @@ def player_stats(
     min_games: int,
     page: PageParams,
     player_id: int | None = None,
+    min_minutes: float = 0,
 ) -> tuple[list[dict], int]:
     fb = SQLFilterBuilder(table_alias="t")
     fb.add_competition_filters(filters)
     fb.add("player_id", player_id)
     fb.clauses.append("t.games >= ?")
     fb.params.append(min_games)
+    if min_minutes:
+        # minutos por partido jugado
+        fb.clauses.append("t.seconds >= ? * 60 * t.games")
+        fb.params.append(min_minutes)
     where_sql = fb.where_sql()
 
     keys = "edition_id, competition_id, competition_phase, player_id, team_id"

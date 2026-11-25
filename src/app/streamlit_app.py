@@ -19,7 +19,7 @@ backend.ensure()
 
 import components  # noqa: E402  (después de set_page_config)
 import filters  # noqa: E402
-from nav import PAGES  # noqa: E402
+from nav import PAGES, SEASON_PAGES  # noqa: E402
 
 page = st.navigation(list(PAGES.values()))
 
@@ -27,7 +27,12 @@ with st.sidebar:
     st.markdown("### ACB Statistics")
     components.search_box(st.sidebar, key="sidebar_search")
     st.divider()
-filters.sidebar()
+# La barra lateral (temporada, competición, fase) solo en las páginas de temporada; las páginas de
+# jugador y equipo tienen sus filtros arriba (ver filters.py)
+if page.title in SEASON_PAGES:
+    filters.sidebar()
+elif page.title in (PAGES["jugador"].title, PAGES["equipo"].title):
+    st.sidebar.caption("Los filtros de esta página están arriba, debajo del nombre.")
 st.sidebar.caption(
     "Datos: [ACB](https://www.acb.com). Proyecto personal sin relación con la ACB · "
     "[código](https://github.com/PabloDMC/acb_statistics)"

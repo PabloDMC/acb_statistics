@@ -18,8 +18,9 @@ def player_stats(
     min_games: int,
     page: PageParams,
     player_id: int | None = None,
+    min_minutes: float = 0,
 ) -> tuple[list[PlayerStatsRow], int]:
-    rows, total = stats_repo.player_stats(cur, filters, per, min_games, page, player_id)
+    rows, total = stats_repo.player_stats(cur, filters, per, min_games, page, player_id, min_minutes)
     items = [
         PlayerStatsRow(
             player={"id": r["player_id"], "name": r.get("name")},

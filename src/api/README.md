@@ -139,8 +139,8 @@ Notas de cálculo:
 - `x`: posición lateral, de −7500 a 7500 (las bandas están a ±7,5 m).
 - `y`: distancia hacia el centro del campo, desde 0 (a la altura del aro) hasta ~25000.
 - Distancia al aro = `sqrt(x² + y²)` (ya calculada en `fact_shots.distance_mm`).
-- Las temporadas anteriores a 2020-21 (edición < 85) venían en otra escala y se normalizan en
-  `int_shots` a estas mismas unidades.
+- Las temporadas 2016-17 a 2019-20 (edición < 85) vienen en % de la pista entera y con tiros en
+  las dos canastas; `int_shots` los pasa a estas mismas unidades (ver el comentario del modelo).
 
 Todos los endpoints de listado aceptan los filtros comunes
 (`edition_id`, `competition_id`, `competition_phase`, `club_id`, `team_id`)

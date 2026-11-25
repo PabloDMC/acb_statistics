@@ -13,8 +13,28 @@ WITH shots AS (
         shot_id,
         player_license_id AS player_id,
 
-        CASE WHEN edition_id < 85 THEN pos_x * 280 ELSE pos_x END AS norm_pos_x,
-        CASE WHEN edition_id < 85 THEN pos_y * 150 - 7500 ELSE pos_y END AS norm_pos_y,
+        -- Coordenadas en mm con origen en el aro: norm_pos_x = distancia hacia el centro del
+        -- campo, norm_pos_y = lateral (±7500 en las bandas).
+        -- Desde 2020-21 (edición 85) ya vienen así. Antes vienen en % de la PISTA ENTERA
+        -- (pos_x: 0-100 de los 28 m de largo desde una línea de fondo; pos_y: 0-100 de los 15 m de
+        -- ancho) y con tiros en las dos canastas: los de pos_x > 50 son en la canasta del otro lado,
+        -- así que se mide desde esa línea de fondo y se gira el lateral (visto desde la otra canasta,
+        -- izquierda y derecha se invierten). El aro está a 1,575 m del fondo. Comprobado con los
+        -- datos: las bandejas caen en pos_x 6-7 y 93-94, y el reparto izquierda/derecha de cada
+        -- jugador coincide con el de las temporadas nuevas solo si se gira el lateral.
+        -- Los tiros libres antiguos vienen en (0, 0): se dejan en el aro.
+        CASE
+            WHEN edition_id >= 85 THEN pos_x
+            WHEN pos_x = 0 AND pos_y = 0 THEN 0
+            WHEN pos_x > 50 THEN (100 - pos_x) * 280 - 1575
+            ELSE pos_x * 280 - 1575
+        END AS norm_pos_x,
+        CASE
+            WHEN edition_id >= 85 THEN pos_y
+            WHEN pos_x = 0 AND pos_y = 0 THEN 0
+            WHEN pos_x > 50 THEN 7500 - pos_y * 150
+            ELSE pos_y * 150 - 7500
+        END AS norm_pos_y,
 
         try_cast(play_type AS INT) AS play_type,
         quarter,

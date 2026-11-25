@@ -27,7 +27,7 @@ first = season_rows[0]
 club = first["club_team"]["club"]
 edition = first["context"]["edition"]
 record = ", ".join(
-    f"{r['context']['competition_phase']}: {r['wins']}-{r['losses']}" for r in season_rows
+    f"{filters.phase_name(r['context']['competition_phase'])}: {r['wins']}-{r['losses']}" for r in season_rows
 )
 components.entity_header(
     first["club_team"]["team"]["name"],
@@ -35,16 +35,33 @@ components.entity_header(
     first.get("logo"),
 )
 
-# otras temporadas del mismo club (cada temporada y competición es un team_id distinto)
-history = api.get(f"/clubs/{club['id']}/teams") if club.get("id") else None
-if history:
-    opts = {h["team"]["id"]: f"{h['edition']['name']} · {h['competition']['name']}" for h in history}
-    opts.setdefault(team_id, f"{edition['name']} · {first['context']['competition']['name']}")
-    ordered = sorted(opts, key=lambda t: opts[t], reverse=True)
-    chosen = st.selectbox("Otras temporadas del club", options=ordered, index=ordered.index(team_id),
-                          format_func=opts.get, key=f"team_hist_{team_id}")
-    if chosen != team_id:
-        nav.goto("equipo", id=chosen)
+# Filtros de la página: temporada y competición (cada combinación es un team_id distinto: cambiarlas
+# lleva a ese equipo) y fase (se aplica a todas las secciones; por defecto, Liga regular)
+cur_ed, cur_comp = edition["id"], first["context"]["competition"]["id"]
+history = (api.get(f"/clubs/{club['id']}/teams") if club.get("id") else None) or []
+team_of = {(h["edition"]["id"], h["competition"]["id"]): h["team"]["id"] for h in history}
+team_of[(cur_ed, cur_comp)] = team_id
+ed_names = {h["edition"]["id"]: h["edition"]["name"] for h in history}
+ed_names.setdefault(cur_ed, edition["name"])
+comp_names = {h["competition"]["id"]: h["competition"]["name"] for h in history}
+comp_names.setdefault(cur_comp, first["context"]["competition"]["name"])
+
+c1, c2, c3 = st.columns(3)
+ed_opts = sorted({e for e, _ in team_of}, reverse=True)
+filters._keep_valid(f"tm_ed_{team_id}", ed_opts, cur_ed)
+sel_ed = c1.selectbox("Temporada", ed_opts, format_func=ed_names.get, key=f"tm_ed_{team_id}")
+comp_opts = sorted(c for e, c in team_of if e == sel_ed)
+filters._keep_valid(f"tm_comp_{team_id}", comp_opts, cur_comp if cur_comp in comp_opts else (1 if 1 in comp_opts else comp_opts[0]))
+sel_comp = c2.selectbox("Competición", comp_opts, format_func=comp_names.get, key=f"tm_comp_{team_id}")
+if (sel_ed, sel_comp) != (cur_ed, cur_comp):
+    nav.goto("equipo", id=team_of[(sel_ed, sel_comp)])
+
+phases = [r["context"]["competition_phase"] for r in season_rows]
+phase_opts = [filters.ALL_PHASES] + phases
+filters._keep_valid(f"tm_phase_{team_id}", phase_opts, "LR" if "LR" in phases else filters.ALL_PHASES)
+sel_phase = c3.selectbox("Fase", phase_opts, format_func=filters.phase_name, key=f"tm_phase_{team_id}")
+phase = None if sel_phase == filters.ALL_PHASES else sel_phase
+phase_rows = [r for r in season_rows if phase is None or r["context"]["competition_phase"] == phase]
 
 _team_pbp = filters.has_play_by_play(edition["id"], first["context"]["competition"]["id"])
 section = components.sections(
@@ -63,7 +80,7 @@ if section == "Plantilla":
     c1, c2 = st.columns(2)
     per = c1.segmented_control("Escala", options=list(P_PER), format_func=P_PER.get, default="per_game", key="tm_r_per") or "per_game"
     group = c2.segmented_control("Columnas", options=list(tables.PLAYER_GROUPS), default="Básicas", key="tm_r_group") or "Básicas"
-    roster = api.get_all("/stats/players", team_id=team_id, per=per, sort="-minutes")
+    roster = api.get_all("/stats/players", team_id=team_id, per=per, sort="-minutes", competition_phase=phase)
     if not roster:
         st.info("Sin jugadores.")
     else:
@@ -78,7 +95,7 @@ if section == "Plantilla":
         df, config = tables.build(roster, tables.PLAYER_GROUPS[group], base, integer_counts=per == "total")
         df["_id"] = [it["player"]["id"] for it in roster]
         config["Min"] = st.column_config.NumberColumn("Min", format="%d" if per == "total" else "%.1f")
-        if len(season_rows) == 1:
+        if phase is not None or len(season_rows) == 1:
             df = df.drop(columns="Fase")
         row = components.selectable_table(df.drop(columns="_id"), key=f"tm_roster_{team_id}", column_config=config,
                                           height=min(35 * len(df) + 38, 700))
@@ -89,7 +106,7 @@ if section == "Plantilla":
 # Calendario y resultados
 # ---------------------------------------------------------------------------
 if section == "Calendario":
-    matches = api.get_all("/matches", team_id=team_id, sort="date")
+    matches = api.get_all("/matches", team_id=team_id, sort="date", competition_phase=phase)
     if not matches:
         st.info("Sin partidos.")
     else:
@@ -118,7 +135,7 @@ if section == "Calendario":
 # Estadísticas del equipo y del rival
 # ---------------------------------------------------------------------------
 if section == "Estadísticas":
-    for r in season_rows:
+    for r in phase_rows:
         st.markdown(f"**{r['context']['competition']['name']} · {r['context']['competition_phase']}** "
                     f"({r['games']} partidos, {r['wins']}-{r['losses']})")
         s = r["stats"]
@@ -162,7 +179,7 @@ if section == "Quintetos":
     c1, c2 = st.columns([3, 1])
     size = c1.segmented_control("Combinación", options=list(SIZES), format_func=SIZES.get, default=5, key="tm_l_size") or 5
     min_poss = c2.number_input("Mín. posesiones", min_value=0, value=50, step=10, key="tm_l_min")
-    combos = api.get_all(f"/teams/{team_id}/lineups", combination_size=size, sort="-minutes")
+    combos = api.get_all(f"/teams/{team_id}/lineups", combination_size=size, sort="-minutes", competition_phase=phase)
     combos = [c for c in combos if (c.get("possessions") or 0) >= min_poss]
     if not combos:
         st.info("Sin combinaciones con ese mínimo de posesiones.")
@@ -194,7 +211,7 @@ if section == "Tiro":
                                 format_func=lambda s: "Del equipo" if s == "own" else "De los rivales") or "own"
     mode = c2.segmented_control("Vista", options=["Hexágonos", "Puntos"], default="Hexágonos", key=f"tm_shot_mode_{team_id}") or "Hexágonos"
     clutch = c3.toggle("Solo clutch", key=f"tm_shot_clutch_{team_id}")
-    shots = api.get(f"/teams/{team_id}/shots", side=side, clutch_only=clutch) or []
+    shots = api.get(f"/teams/{team_id}/shots", side=side, clutch_only=clutch, competition_phase=phase) or []
     if not shots:
         st.info("Sin tiros registrados.")
     else:
@@ -210,10 +227,7 @@ if section == "Tiro":
 # Mapa de rotaciones de la temporada
 # ---------------------------------------------------------------------------
 if section == "Rotaciones":
-    phases = [r["context"]["competition_phase"] for r in season_rows]
-    phase = st.segmented_control("Fase", options=["__all__", *phases], default="__all__", key=f"tm_rot_phase_{team_id}",
-                                 format_func=lambda p: "Todas" if p == "__all__" else p) or "__all__"
-    rot = api.get(f"/teams/{team_id}/rotations", competition_phase=None if phase == "__all__" else phase)
+    rot = api.get(f"/teams/{team_id}/rotations", competition_phase=phase)
     if not rot:
         st.info("Sin datos de rotaciones (hace falta la jugada a jugada).")
     else:
@@ -231,7 +245,7 @@ if section == "Líderes":
         format_func=lambda s: f"Esta temporada ({edition['name']})" if s == "team" else f"Historia del club ({club.get('name')})",
     ) or "team"
     if scope == "team" or not club.get("id"):
-        leaders.render({"team_id": team_id}, key=f"tm_lead_{team_id}", historic=False)
+        leaders.render({"team_id": team_id, "competition_phase": phase}, key=f"tm_lead_{team_id}", historic=False)
     else:
-        leaders.render({"club_id": club["id"], "competition_id": first["context"]["competition"]["id"]},
+        leaders.render({"club_id": club["id"], "competition_id": first["context"]["competition"]["id"], "competition_phase": phase},
                        key=f"club_lead_{club['id']}", historic=True)
