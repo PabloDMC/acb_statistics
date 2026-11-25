@@ -14,8 +14,9 @@ Por qué así:
   ficheros grandes gratis, y el contenedor del Space la descarga al arrancar.
 - Cada subida es un commit nuevo; para no acumular medio giga por actualización, se aplasta el
   historial del dataset (super_squash_history) y solo queda la última versión.
-- Se compara una "huella" (partidos jugados, último partido, jugadores) con la de la última subida
-  para no reiniciar la web si no ha cambiado nada.
+- Se compara una "huella" (partidos jugados, último partido, jugadores y el código de los modelos de
+  dbt) con la de la última subida, para no subir 600 MB si no ha cambiado nada. Incluye el código de
+  dbt porque corregir un modelo cambia la base aunque no haya partidos nuevos.
 """
 
 from __future__ import annotations
@@ -35,6 +36,24 @@ STAMP_PATH = ROOT / "data" / "database" / "published.json"
 DB_FILENAME = "acb_analytics.duckdb"
 
 
+def models_hash() -> str:
+    """Huella del código de dbt (modelos, seeds, macros, proyecto). Si cambia un modelo (p. ej. se
+    corrige un cálculo), la base cambia aunque no haya partidos nuevos, y hay que publicarla."""
+    import hashlib
+
+    h = hashlib.sha256()
+    dbt_dir = ROOT / "dbt_acb"
+    files = [dbt_dir / "dbt_project.yml"]
+    for sub in ("models", "seeds", "macros"):
+        files += sorted(p for p in (dbt_dir / sub).rglob("*") if p.is_file())
+    for f in files:
+        if f.exists():
+            h.update(str(f.relative_to(dbt_dir)).replace("\\", "/").encode())
+            # sin saltos de línea de Windows, para que el mismo código dé la misma huella
+            h.update(f.read_bytes().replace(b"\r\n", b"\n"))
+    return h.hexdigest()[:16]
+
+
 def fingerprint(db_path: Path) -> dict:
     con = duckdb.connect(str(db_path), read_only=True)
     try:
@@ -45,11 +64,12 @@ def fingerprint(db_path: Path) -> dict:
         players = con.execute("SELECT count(*) FROM main_marts.dim_players").fetchone()[0]
     finally:
         con.close()
-    return {"played": played, "last_start": last_start, "matches": scheduled, "players": players}
+    return {"played": played, "last_start": last_start, "matches": scheduled, "players": players,
+            "models": models_hash()}
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Sube la base a Hugging Face y reinicia el Space")
+    parser = argparse.ArgumentParser(description="Sube la base al dataset de Hugging Face")
     parser.add_argument("--force", action="store_true", help="Subir aunque no haya cambios")
     args = parser.parse_args()
 
