@@ -12,6 +12,11 @@ import streamlit as st
 
 st.set_page_config(page_title="ACB Statistics", page_icon=":material/sports_basketball:", layout="wide")
 
+import backend  # noqa: E402
+
+# En Streamlit Community Cloud la API se arranca aquí mismo (ver backend.py); en local no hace nada
+backend.ensure()
+
 import components  # noqa: E402  (después de set_page_config)
 import filters  # noqa: E402
 from nav import PAGES  # noqa: E402

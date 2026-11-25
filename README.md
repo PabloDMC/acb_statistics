@@ -37,23 +37,31 @@ pip install -r requirements.txt
 
 ## Despliegue (gratis)
 
-La web pública vive en un **Space de Hugging Face** (Docker). Un solo contenedor sirve la app de
-Streamlit en el puerto público y la API dentro, en `127.0.0.1:8000`, sin exponerla. La base no va
-en git: se guarda en un **dataset privado de Hugging Face** y el contenedor la descarga al arrancar.
+La web pública vive en **Streamlit Community Cloud** (gratis, sin tarjeta). Community Cloud solo
+ejecuta Streamlit, así que la app arranca la API dentro, como proceso hijo en `127.0.0.1:8000`, sin
+exponerla (`src/app/backend.py`). La base no va en git: está en un **dataset privado de Hugging
+Face**, la app la descarga al arrancar y cada hora mira si hay una versión nueva.
 
 Configuración, una sola vez:
 
-1. Crea una cuenta en https://huggingface.co y un token con permiso de escritura
-   (Settings → Access Tokens). Copia `.env.example` como `.env` y rellena `HF_TOKEN`,
-   `ACB_DB_DATASET` y `HF_SPACE` (el dataset y el Space se crean solos la primera vez).
-2. `python scripts/publish_db.py --force` sube la base al dataset.
-3. `python scripts/deploy_space.py` sube el código al Space. Desde entonces, cada push a `main` que
-   toque la app lo vuelve a desplegar (`.github/workflows/deploy-space.yml`). Para eso, en GitHub
-   → Settings → Secrets and variables → Actions: secreto `HF_TOKEN` y variables `HF_SPACE` y
-   `ACB_DB_DATASET`.
+1. En Hugging Face, un token de escritura (para publicar desde tu PC) y otro de solo lectura (para
+   la web). En `.env`: `HF_TOKEN` (escritura) y `ACB_DB_DATASET` (p. ej. `usuario/acb-statistics-db`).
+2. `python scripts/publish_db.py --force` sube la base al dataset (se crea solo, privado).
+3. En https://share.streamlit.io, con tu cuenta de GitHub: *Create app* → repositorio
+   `PabloDMC/acb_statistics`, rama `main`, archivo `src/app/streamlit_app.py`, Python 3.12. En
+   *Advanced settings → Secrets*:
+   ```
+   ACB_DB_DATASET = "usuario/acb-statistics-db"
+   HF_TOKEN = "hf_...token de solo lectura..."
+   ```
+   Cada push a `main` redespliega la app solo. Las dependencias salen de `src/app/requirements.txt`.
 4. `.\scripts\scheduled_update.ps1 -Register` programa en Windows la actualización diaria
    (05:30, o al encender el PC si estaba apagado): ingesta + dbt + publicar. Si no hay partidos
-   nuevos no sube nada. Registro en `logs/`.
+   nuevos no sube nada; si los hay, la web los muestra en menos de una hora.
+
+`deploy/` y `docker-compose.yml` sirven para levantarlo todo con Docker (en local o en cualquier
+servidor con Docker); `scripts/deploy_space.py` es para un Space de Hugging Face, que hoy exige
+la suscripción PRO.
 
 ## Estructura
 

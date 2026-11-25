@@ -1,0 +1,14 @@
+# Dependencias de la app en Streamlit Community Cloud (busca primero requirements.txt junto al
+# punto de entrada): API + Streamlit, sin ingesta ni dbt. Igual que requirements-serve.txt.
+fastapi>=0.115
+uvicorn[standard]>=0.30
+duckdb>=1.0
+pydantic>=2.7
+pydantic-settings>=2.3
+python-dotenv>=1.0
+requests>=2.31
+pandas>=2.0
+streamlit>=1.40
+plotly>=5.20
+tzdata
+huggingface_hub>=0.24

@@ -1,4 +1,5 @@
-"""Publica la base DuckDB en Hugging Face y reinicia el Space para que la cargue.
+"""Publica la base DuckDB en el dataset de Hugging Face. La web (Streamlit Community Cloud) mira
+cada hora si hay una versión nueva y la carga sola (src/app/backend.py).
 
 Uso:
     python scripts/publish_db.py            # sube solo si hay partidos nuevos desde la última vez
@@ -7,8 +8,8 @@ Uso:
 Variables (en .env o en el entorno):
     HF_TOKEN        token de Hugging Face con permiso de escritura
     ACB_DB_DATASET  dataset donde se guarda la base, p. ej. "PabloDMC/acb-statistics-db"
-    HF_SPACE        Space que sirve la app, p. ej. "PabloDMC/acb-statistics" (opcional: si falta,
-                    no se reinicia nada)
+    HF_SPACE        solo si la app se sirve desde un Space de Hugging Face: se reinicia tras subir
+                    (opcional; con Streamlit Community Cloud no hace falta)
 
 Por qué así:
 - La base (~0,5 GB) no va en git: se guarda como fichero en un dataset de Hugging Face, que admite
@@ -89,10 +90,16 @@ def main() -> int:
     except Exception as exc:  # no es crítico: solo ahorra espacio
         print(f"Aviso: no se pudo aplastar el historial del dataset ({exc})")
 
+    # la base ya está subida: se apunta antes de reiniciar, para que un fallo al reiniciar no
+    # obligue a volver a subir 600 MB
+    STAMP_PATH.write_text(json.dumps(current, indent=2))
     if space:
         print(f"Reiniciando el Space {space}...")
-        api.restart_space(space)
-    STAMP_PATH.write_text(json.dumps(current, indent=2))
+        try:
+            api.restart_space(space)
+        except Exception as exc:  # p. ej. el Space aún no existe (se crea con deploy_space.py)
+            print(f"Aviso: no se pudo reiniciar el Space ({type(exc).__name__}). Si aún no existe, "
+                  "créalo con: python scripts/deploy_space.py")
     print("Publicado:", current)
     return 0
 
