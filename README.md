@@ -59,9 +59,8 @@ Configuración, una sola vez:
    (05:30, o al encender el PC si estaba apagado): ingesta + dbt + publicar. Si no hay partidos
    nuevos no sube nada; si los hay, la web los muestra en menos de una hora.
 
-`deploy/` y `docker-compose.yml` sirven para levantarlo todo con Docker (en local o en cualquier
-servidor con Docker); `scripts/deploy_space.py` es para un Space de Hugging Face, que hoy exige
-la suscripción PRO.
+`deploy/` y `docker-compose.yml` sirven para levantarlo todo con Docker, en local o en cualquier
+servidor con Docker, si algún día se deja Community Cloud.
 
 ## Estructura
 
@@ -70,7 +69,7 @@ la suscripción PRO.
 - `src/api`: API de consumo (FastAPI, solo lectura sobre DuckDB).
 - `src/app`: app de Streamlit (`views/` tiene una página por entidad: temporada, jugador, equipo, partido).
 - `scripts/update_data.py`: ingesta + dbt en un comando.
-- `scripts/publish_db.py`, `scripts/deploy_space.py`, `scripts/scheduled_update.ps1`, `deploy/`:
-  publicación en Hugging Face y actualización programada.
+- `scripts/publish_db.py`, `scripts/scheduled_update.ps1`: publicación de la base y actualización
+  programada. `deploy/`: imagen Docker.
 - `scripts/probe_history.py`: sondeo de qué datos ofrece la API en temporadas antiguas.
 - `prototypes/qa`: consultas de QA contra la base de datos (`run_sql.py`).
